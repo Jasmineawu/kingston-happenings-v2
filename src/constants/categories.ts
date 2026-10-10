@@ -102,6 +102,54 @@ export const categoryColorsActive: Record<EventCategory, string> = {
 };
 
 /**
+ * Brand tag styles (Figma "Tag" component) – background + text color per category
+ */
+export const categoryTagStyles: Record<EventCategory, string> = {
+  'live-music': 'bg-[#ff6b4a] text-[#1b2a41]',
+  'activity-nights': 'bg-[#1b2a41] text-white',
+  'daytime': 'bg-[#ffb547] text-[#1b2a41]',
+  'sports': 'bg-[#3e7ca6] text-white',
+  'all-day': 'bg-[#ddebf7] text-[#1b2a41]',
+  '19plus': 'bg-[#c4452b] text-white',
+  'workshop': 'bg-[#ddebf7] text-[#1f5f94]',
+  'concert': 'bg-[#1f5f94] text-white',
+  'theatre': 'bg-[#ffe1da] text-[#b3412a]',
+  'market': 'bg-[#fff1d6] text-[#8a5a00]',
+  'nightlife': 'bg-[#1b2a41] text-white',
+  'food-deal': 'bg-[#ff6b4a] text-[#1b2a41]',
+  'food': 'bg-[#ff6b4a] text-[#1b2a41]',
+  'drink': 'bg-[#ddebf7] text-[#1f5f94]',
+  'trivia': 'bg-[#ddebf7] text-[#1b2a41]',
+  'festival': 'bg-[#ffb547] text-[#1b2a41]',
+  'family': 'bg-[#ffe8d6] text-[#a84a12]',
+  'community': 'bg-[#fff1d6] text-[#8a5a00]',
+};
+
+/**
+ * Small dot colors for category bullets in list rows
+ */
+export const categoryDotColors: Record<EventCategory, string> = {
+  'live-music': 'bg-[#ff6b4a]',
+  'activity-nights': 'bg-[#1b2a41]',
+  'daytime': 'bg-[#ffb547]',
+  'sports': 'bg-[#3e7ca6]',
+  'all-day': 'bg-[#3e7ca6]',
+  '19plus': 'bg-[#c4452b]',
+  'workshop': 'bg-[#1f5f94]',
+  'concert': 'bg-[#1f5f94]',
+  'theatre': 'bg-[#b3412a]',
+  'market': 'bg-[#e0a030]',
+  'nightlife': 'bg-[#1b2a41]',
+  'food-deal': 'bg-[#ff6b4a]',
+  'food': 'bg-[#ff6b4a]',
+  'drink': 'bg-[#3e7ca6]',
+  'trivia': 'bg-[#1b2a41]',
+  'festival': 'bg-[#ffb547]',
+  'family': 'bg-[#e07a3a]',
+  'community': 'bg-[#e0a030]',
+};
+
+/**
  * Categories to display in the Browse page sidebar
  */
 export const browseCategories: EventCategory[] = [

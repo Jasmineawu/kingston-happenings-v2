@@ -41,6 +41,8 @@ interface RegisterData {
   password: string;
   role: 'user' | 'organizer';
   venueName?: string;
+  /** Extra organizer sign-up details (venue info, hours, accessibility) kept on the auth user for admin review */
+  organizerApplication?: Record<string, unknown>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -406,6 +408,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             full_name: data.name,
             role: data.role,
             venueName: data.role === 'organizer' ? data.venueName : undefined,
+            organizerApplication: data.role === 'organizer' ? data.organizerApplication : undefined,
           },
         },
       });

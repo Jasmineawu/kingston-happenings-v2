@@ -31,7 +31,7 @@ import {
 import { format, parseISO } from 'date-fns';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvents } from '@/contexts/EventsContext';
-import { categoryLabels, categoryColors, EventCategory } from '@/types/event';
+import { categoryLabels, EventCategory } from '@/types/event';
 import { Modal, Toast } from '@/components';
 import { compressImage } from '@/utils/compression';
 import { formatPrice } from '@/utils/price';
@@ -206,7 +206,7 @@ function EditVenueForm({
     inputRef: React.RefObject<HTMLInputElement | null>
   ) => (
     <div>
-      <label className="block text-sm font-medium text-foreground mb-2">
+      <label className="field-label">
         {label}
       </label>
       <div
@@ -243,7 +243,7 @@ function EditVenueForm({
                 e.stopPropagation();
                 removeImage(field);
               }}
-              className="absolute top-2 right-2 p-1.5 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors"
+              className="absolute top-2 right-2 p-1.5 bg-navy text-white rounded-full transition-colors"
             >
               <X size={16} />
             </button>
@@ -273,7 +273,7 @@ function EditVenueForm({
           else setCoverImagePreview(e.target.value);
         }}
         placeholder="Or enter image URL"
-        className="w-full mt-2 px-4 py-2 bg-card border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
+        className="field mt-2"
       />
     </div>
   );
@@ -281,7 +281,7 @@ function EditVenueForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
-        <label className="block text-sm font-medium text-foreground mb-2">
+        <label className="field-label">
           Venue Name *
         </label>
         <input
@@ -289,11 +289,11 @@ function EditVenueForm({
           value={formData.name}
           onChange={(e) => setFormData({ ...formData, name: e.target.value })}
           required
-          className="w-full px-4 py-2 bg-card border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
+          className="field"
         />
       </div>
       <div>
-        <label className="block text-sm font-medium text-foreground mb-2">
+        <label className="field-label">
           Address *
         </label>
         <input
@@ -301,39 +301,39 @@ function EditVenueForm({
           value={formData.address}
           onChange={(e) => setFormData({ ...formData, address: e.target.value })}
           required
-          className="w-full px-4 py-2 bg-card border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
+          className="field"
         />
       </div>
       <div>
-        <label className="block text-sm font-medium text-foreground mb-2">
+        <label className="field-label">
           Neighborhood
         </label>
         <input
           type="text"
           value={formData.neighborhood || ''}
           onChange={(e) => setFormData({ ...formData, neighborhood: e.target.value })}
-          className="w-full px-4 py-2 bg-card border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
+          className="field"
         />
       </div>
       <div>
-        <label className="block text-sm font-medium text-foreground mb-2">
+        <label className="field-label">
           Website
         </label>
         <input
           type="url"
           value={formData.website || ''}
           onChange={(e) => setFormData({ ...formData, website: e.target.value })}
-          className="w-full px-4 py-2 bg-card border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
+          className="field"
         />
       </div>
       <div>
-        <label className="block text-sm font-medium text-foreground mb-2">
+        <label className="field-label">
           Promotion Tier
         </label>
         <select
           value={formData.promotionTier || 'standard'}
           onChange={(e) => setFormData({ ...formData, promotionTier: e.target.value })}
-          className="w-full px-4 py-2 bg-card border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
+          className="field"
         >
           <option value="standard">Standard</option>
           <option value="promoted">Promoted</option>
@@ -349,14 +349,14 @@ function EditVenueForm({
         <button
           type="submit"
           disabled={saving}
-          className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
+          className="btn-sun flex-1"
         >
           {saving ? 'Saving...' : 'Save Changes'}
         </button>
         <button
           type="button"
           onClick={onCancel}
-          className="flex-1 px-4 py-2 bg-muted text-foreground rounded-lg font-medium hover:bg-muted/80 transition-colors"
+          className="btn-ghost flex-1"
         >
           Cancel
         </button>
@@ -385,7 +385,9 @@ export default function AdminPage() {
   const [pastEventsPage, setPastEventsPage] = useState(1);
   const [pastSpecialsPage, setPastSpecialsPage] = useState(1);
   const itemsPerPage = 20;
-  const [activeSubTab, setActiveSubTab] = useState<'pending-published' | 'venue-promotions'>('pending-published');
+  const [activeSubTab, setActiveSubTab] = useState<'pending-published' | 'venues' | 'venue-promotions'>('pending-published');
+  const [reviewFilter, setReviewFilter] = useState<'all' | 'events' | 'specials'>('all');
+  const [previewId, setPreviewId] = useState<string | null>(null);
   const [publishedEventsSort, setPublishedEventsSort] = useState<ListSort>('date');
   const [publishedSpecialsSort, setPublishedSpecialsSort] = useState<ListSort>('date');
   const [publishedEventsSearch, setPublishedEventsSearch] = useState('');
@@ -523,7 +525,7 @@ export default function AdminPage() {
 
   if (authLoading || eventsLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="flex min-h-[60vh] items-center justify-center">
         <Loader2 size={32} className="animate-spin text-primary" />
       </div>
     );
@@ -844,321 +846,213 @@ export default function AdminPage() {
     }
   };
 
+  const reviewItems = groupedPendingEvents.filter((e) => {
+    const isSpecial = e.categories.includes('food-deal');
+    return reviewFilter === 'all' ? true : reviewFilter === 'specials' ? isSpecial : !isSpecial;
+  });
+
+  const tierOf = (v: PublishedVenue) => v.promotionTier || 'standard';
+
   return (
-    <div className="min-h-screen">
-      {/* Header */}
-      <section className="bg-gradient-to-br from-red-900 to-red-700 text-white py-12">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-3 mb-4">
-            <Shield size={32} />
-            <h1 className="font-display text-4xl">Admin Dashboard</h1>
-          </div>
-          <p className="text-white/80">
-            Manage events, venues, approve submissions, and monitor the platform.
-          </p>
-        </div>
-      </section>
+    <div className="page-container pb-24 pt-10">
+      <p className="eyebrow mb-3.5">— Admin</p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <h1 className="display-section">Dashboard</h1>
+        <p className="text-[12px] text-ink-muted sm:pb-2">Signed in as {user?.name}</p>
+      </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-8">
-          <div className="bg-card border border-border rounded-xl p-6">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-lg bg-orange-100 flex items-center justify-center">
-                <AlertTriangle size={24} className="text-orange-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-display text-foreground">{groupedPendingEvents.length}</p>
-                <p className="text-sm text-muted-foreground">Pending Events</p>
-              </div>
-            </div>
-          </div>
-          <div className="bg-card border border-border rounded-xl p-6">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-lg bg-amber-100 flex items-center justify-center">
-                <Building size={24} className="text-amber-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-display text-foreground">{pendingVenues.length}</p>
-                <p className="text-sm text-muted-foreground">Pending Venues</p>
-              </div>
-            </div>
-          </div>
-          <div className="bg-card border border-border rounded-xl p-6">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-lg bg-green-100 flex items-center justify-center">
-                <FileText size={24} className="text-green-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-display text-foreground">{events.length}</p>
-                <p className="text-sm text-muted-foreground">Published Events</p>
-              </div>
-            </div>
-          </div>
-          <div className="bg-card border border-border rounded-xl p-6">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center">
-                <Users size={24} className="text-blue-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-display text-foreground">—</p>
-                <p className="text-sm text-muted-foreground">Registered Users</p>
-              </div>
-            </div>
-          </div>
-        </div>
+      {/* Stats */}
+      <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <button
+          onClick={() => setActiveSubTab('pending-published')}
+          className="flex flex-col items-start rounded-[22px] bg-sun p-6 text-left text-navy"
+        >
+          <span className="text-[44px] font-bold leading-none tracking-[-0.03em]">{groupedPendingEvents.length}</span>
+          <span className="eyebrow-bold mt-3">Listings to review</span>
+        </button>
+        <button
+          onClick={() => setActiveSubTab('pending-published')}
+          className="card flex flex-col items-start p-6 text-left text-navy"
+        >
+          <span className="text-[44px] font-bold leading-none tracking-[-0.03em]">{pendingVenues.length}</span>
+          <span className="eyebrow-bold mt-3">Venues to verify</span>
+        </button>
+      </div>
 
-        {/* Sub-tabs */}
-        <div className="flex gap-4 mb-8 border-b border-border">
-          <button
-            onClick={() => setActiveSubTab('pending-published')}
-            className={`px-6 py-3 font-medium transition-colors relative ${
-              activeSubTab === 'pending-published'
-                ? 'text-primary'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            Pending & Published
-            {(groupedPendingEvents.length > 0 || pendingVenues.length > 0) && (
-              <span className="ml-2 px-2 py-0.5 text-xs font-semibold rounded-full bg-orange-500 text-white">
-                {groupedPendingEvents.length + pendingVenues.length}
+      {/* Tabs */}
+      <div className="segmented mt-8">
+        {(
+          [
+            ['pending-published', 'Review queue', groupedPendingEvents.length],
+            ['venues', 'Venues', pendingVenues.length],
+            ['venue-promotions', 'Promotions', 0],
+          ] as [typeof activeSubTab, string, number][]
+        ).map(([id, label, count]) => (
+          <button key={id} className="segmented-item h-10 px-4 gap-2" data-active={activeSubTab === id} onClick={() => setActiveSubTab(id)}>
+            {label}
+            {count > 0 && (
+              <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none ${activeSubTab === id ? 'bg-sun text-navy' : 'bg-white text-navy'}`}>
+                {count}
               </span>
             )}
-            {activeSubTab === 'pending-published' && (
-              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
-            )}
           </button>
-          <button
-            onClick={() => setActiveSubTab('venue-promotions')}
-            className={`px-6 py-3 font-medium transition-colors relative ${
-              activeSubTab === 'venue-promotions'
-                ? 'text-primary'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            Venue Promotions
-            {activeSubTab === 'venue-promotions' && (
-              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
-            )}
-          </button>
-        </div>
+        ))}
+      </div>
 
-        {/* Tab Content */}
+      <div className="mt-8">
         {activeSubTab === 'pending-published' && (
           <>
-            {/* Pending Events */}
-            <section className="mb-12">
-              <h2 className="font-display text-2xl text-foreground mb-6 flex items-center gap-2">
-                <AlertTriangle size={24} className="text-orange-500" />
-                Pending Event Submissions
-              </h2>
-
-              {groupedPendingEvents.length === 0 ? (
-                <div className="bg-card border border-border rounded-xl p-8 text-center">
-                  <Check size={48} className="mx-auto text-green-500 mb-4" />
-                  <h3 className="font-display text-xl text-foreground mb-2">All Caught Up!</h3>
-                  <p className="text-muted-foreground">No events pending approval.</p>
+            <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_380px]">
+              {/* Review queue */}
+              <section className="min-w-0">
+                <div className="flex items-baseline justify-between border-b-[1.5px] border-navy pb-2.5">
+                  <h2 className="text-[22px] font-bold text-navy">Waiting for review</h2>
+                  <div className="flex gap-3 text-[12px]">
+                    {(['all', 'events', 'specials'] as const).map((f) => (
+                      <button
+                        key={f}
+                        onClick={() => setReviewFilter(f)}
+                        className={`capitalize ${reviewFilter === f ? 'font-bold text-navy underline underline-offset-4' : 'text-ink-muted hover:text-navy'}`}
+                      >
+                        {f}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              ) : (
-                <div className="space-y-4">
-                  {groupedPendingEvents.map((event) => (
-                    <div
-                      key={event.seriesId || event.id}
-                      className="bg-card border border-border rounded-xl overflow-hidden"
-                    >
-                      <div className="p-6">
-                        <div className="flex flex-col lg:flex-row lg:items-start gap-6">
-                          {/* Event Image */}
-                          <div className="relative w-full lg:w-48 h-32 rounded-lg overflow-hidden bg-muted flex-shrink-0">
-                            {event.imageUrl ? (
-                              <SmartImage
-                                src={event.imageUrl}
-                                alt={event.title}
-                                sizes="(max-width: 1024px) 100vw, 192px"
-                              />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/10 to-secondary/10">
-                                <Calendar size={32} className="text-muted-foreground" />
-                              </div>
-                            )}
-                          </div>
 
-                          {/* Event Details */}
-                          <div className="flex-1 min-w-0">
-                            <div className="flex flex-wrap gap-2 mb-2">
-                              {event.categories.map((cat) => (
-                                <span
-                                  key={cat}
-                                  className={`px-2 py-0.5 rounded-full text-xs font-medium text-white ${categoryColors[cat as EventCategory]}`}
-                                >
-                                  {categoryLabels[cat as EventCategory]}
-                                </span>
-                              ))}
-                            </div>
-                            
-                            <div className="flex items-center gap-2 mb-2">
-                              <h3 className="font-display text-xl text-foreground">
-                                {event.title}
-                              </h3>
-                              {(event.seriesId && event.totalInstances > 1) && (
-                                <span className="flex items-center gap-1 px-2 py-0.5 bg-primary/10 text-primary rounded-full text-xs font-medium">
-                                  <Repeat size={12} />
-                                  {event.totalInstances} instances
+                {reviewItems.length === 0 ? (
+                  <div className="py-12 text-center">
+                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-success-tint text-success">
+                      <Check size={20} />
+                    </div>
+                    <p className="mt-4 text-[20px] font-bold text-navy">All caught up!</p>
+                    <p className="mt-1 text-[14px] text-ink-muted">Nothing waiting for review.</p>
+                  </div>
+                ) : (
+                  reviewItems.map((event) => {
+                    const key = event.seriesId && event.totalInstances > 1 ? (event.seriesId as string) : event.id;
+                    const isSeriesBatch = Boolean(event.seriesId && event.totalInstances > 1);
+                    const isSpecial = event.categories.includes('food-deal');
+                    const cat = event.categories.find((c) => c !== 'food-deal' && c !== 'food' && c !== 'drink') as EventCategory | undefined;
+                    const previewing = previewId === key;
+                    return (
+                      <div key={key} className="border-b border-line py-4">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className={`tag ${isSpecial ? 'bg-danger-tint text-danger' : 'bg-sky text-link-deep'}`}>
+                                {isSpecial ? 'Special' : 'Event'}
+                              </span>
+                              <p className="truncate text-[16px] font-bold text-navy">{event.title}</p>
+                              {isSeriesBatch && (
+                                <span className="flex items-center gap-1 text-[11px] font-medium text-link">
+                                  <Repeat size={11} />
+                                  {event.totalInstances} dates
                                 </span>
                               )}
                             </div>
-                            
-                            <p className="text-muted-foreground text-sm mb-4 line-clamp-2">
-                              {event.description}
+                            <p className="mt-1 text-[12px] text-ink-muted">
+                              {event.venue.name} · {format(parseISO(event.date), 'EEE, MMM d')} ·{' '}
+                              {event.isAllDay || event.startTime === '00:00'
+                                ? 'All day'
+                                : format(parseISO(`2000-01-01T${event.startTime}`), 'h:mm a')}
+                              {event.endTime && !(event.isAllDay || event.startTime === '00:00')
+                                ? ` – ${format(parseISO(`2000-01-01T${event.endTime}`), 'h:mm a')}`
+                                : ''}
                             </p>
-                            
-                            <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-                              <span className="flex items-center gap-1">
-                                <Calendar size={14} />
-                                {format(parseISO(event.date), 'EEE, MMM d, yyyy')}
-                              </span>
-                              <span className="flex items-center gap-1">
-                                <Clock size={14} />
-                                {format(parseISO(`2000-01-01T${event.startTime}`), 'h:mm a')}
-                              </span>
-                              <span className="flex items-center gap-1">
-                                <MapPin size={14} />
-                                {event.venue.name}
-                              </span>
-                            </div>
-                            
-                            {(event.submitterName || event.submitterRole) && (
-                              <div className="mt-2 flex items-center gap-2 text-sm">
-                                <span className="flex items-center gap-1 text-muted-foreground">
-                                  <Users size={14} />
-                                  Submitted by:
-                                </span>
-                                <span className="font-medium text-foreground">
-                                  {event.submitterName || 'Unknown User'}
-                                </span>
-                                {event.submitterRole && (
-                                  <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-muted text-foreground capitalize">
-                                    {event.submitterRole}
-                                  </span>
-                                )}
-                              </div>
-                            )}
-                            
-                            {event.price && (
-                              <p className="mt-2 text-sm font-medium text-primary">
-                                {event.price}
-                              </p>
-                            )}
+                            <p className="mt-0.5 text-[12px] text-ink-muted">
+                              Submitted by {event.submitterName || 'a member'}
+                              {event.submitterRole && event.submitterRole !== 'user' ? ` (${event.submitterRole})` : ''}
+                              {cat ? ` · ${categoryLabels[cat]}` : isSpecial ? ` · ${event.categories.includes('drink') ? 'Drink' : 'Food'}` : ''}
+                              {event.price ? ` · ${formatPrice(event.price)}` : ''}
+                            </p>
                           </div>
-
-                          {/* Actions */}
-                          <div className="flex lg:flex-col gap-2 flex-shrink-0">
-                            <button
-                              onClick={() => {
-                                const isSeriesBatch = Boolean(event.seriesId && event.totalInstances > 1);
-                                handleApproveClick(
-                                  isSeriesBatch ? (event.seriesId as string) : event.id,
-                                  isSeriesBatch
-                                );
-                              }}
-                              disabled={processingEventId === (event.seriesId && event.totalInstances > 1 ? event.seriesId : event.id)}
-                              className={`flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-                                clickedApproveId === (event.seriesId && event.totalInstances > 1 ? event.seriesId : event.id)
-                                  ? 'bg-green-700 text-white ring-2 ring-green-400'
-                                  : 'bg-green-600 text-white hover:bg-green-700'
-                              } disabled:opacity-50`}
-                            >
-                              {processingEventId === (event.seriesId && event.totalInstances > 1 ? event.seriesId : event.id) ? (
-                                <Loader2 size={18} className="animate-spin" />
-                              ) : (
-                                <Check size={18} />
-                              )}
-                              {clickedApproveId === (event.seriesId && event.totalInstances > 1 ? event.seriesId : event.id)
-                                ? 'Click to confirm'
-                                : (event.seriesId && event.totalInstances > 1 ? `Approve All (${event.totalInstances})` : 'Approve')}
+                          <div className="flex shrink-0 gap-2">
+                            <button onClick={() => setPreviewId(previewing ? null : key)} className="btn-ghost btn-sm">
+                              {previewing ? 'Hide' : 'Preview'}
                             </button>
                             <button
-                              onClick={() => {
-                                const isSeriesBatch = Boolean(event.seriesId && event.totalInstances > 1);
-                                handleRejectClick(
-                                  isSeriesBatch ? (event.seriesId as string) : event.id,
-                                  isSeriesBatch
-                                );
-                              }}
-                              disabled={processingEventId === (event.seriesId && event.totalInstances > 1 ? event.seriesId : event.id)}
-                              className={`flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-                                clickedRejectId === (event.seriesId && event.totalInstances > 1 ? event.seriesId : event.id)
-                                  ? 'bg-red-700 text-white ring-2 ring-red-400'
-                                  : 'bg-red-600 text-white hover:bg-red-700'
-                              } disabled:opacity-50`}
+                              onClick={() => handleRejectClick(key, isSeriesBatch)}
+                              disabled={processingEventId === key}
+                              className={`btn-sm btn border-[1.5px] font-medium ${
+                                clickedRejectId === key ? 'border-danger bg-danger text-white' : 'border-line text-navy hover:border-danger hover:text-danger'
+                              }`}
                             >
-                              <X size={18} />
-                              {clickedRejectId === (event.seriesId && event.totalInstances > 1 ? event.seriesId : event.id)
-                                ? 'Click to confirm'
-                                : (event.seriesId && event.totalInstances > 1 ? `Reject All (${event.totalInstances})` : 'Reject')}
+                              {clickedRejectId === key ? 'Confirm reject' : isSeriesBatch ? `Reject all` : 'Reject'}
+                            </button>
+                            <button
+                              onClick={() => handleApproveClick(key, isSeriesBatch)}
+                              disabled={processingEventId === key}
+                              className={`btn-sm btn font-bold text-white ${clickedApproveId === key ? 'bg-success' : 'bg-navy hover:bg-[#283b58]'}`}
+                            >
+                              {processingEventId === key ? <Loader2 size={14} className="animate-spin" /> : null}
+                              {clickedApproveId === key ? 'Confirm' : isSeriesBatch ? `Approve all (${event.totalInstances})` : 'Approve'}
                             </button>
                           </div>
                         </div>
+                        {previewing && (
+                          <div className="mt-3 flex gap-4 rounded-[14px] bg-sky-soft p-4">
+                            {event.imageUrl && (
+                              <div className="relative h-20 w-28 shrink-0 overflow-hidden rounded-[10px] bg-sky">
+                                <SmartImage src={event.imageUrl} alt={event.title} sizes="112px" />
+                              </div>
+                            )}
+                            <div className="min-w-0 text-[13px] text-navy">
+                              <p className="whitespace-pre-line">{event.description}</p>
+                              <p className="mt-2 text-[12px] text-ink-muted">{event.venue.address}</p>
+                              {event.ticketUrl && (
+                                <a href={event.ticketUrl} target="_blank" rel="noopener noreferrer" className="mt-1 inline-block text-[12px] text-link hover:underline">
+                                  {event.ticketUrl}
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
+                    );
+                  })
+                )}
+              </section>
 
-            {/* Pending Venues */}
-            {pendingVenues.length > 0 && (
-          <section className="mb-12">
-            <h2 className="font-display text-2xl text-foreground mb-6 flex items-center gap-2">
-              <Building size={24} className="text-amber-500" />
-              Pending Venue Submissions
-            </h2>
-
-            <div className="space-y-4">
-              {pendingVenues.map((venue) => (
-                <div
-                  key={venue.id}
-                  className="bg-card border border-border rounded-xl p-6"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div>
-                      <h3 className="font-display text-lg text-foreground mb-1">
-                        {venue.name}
-                      </h3>
-                      <p className="text-sm text-muted-foreground flex items-center gap-1">
-                        <MapPin size={14} />
-                        {venue.address}
-                      </p>
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleApproveVenue(venue.id)}
-                        className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                      >
-                        <Check size={18} />
-                        Approve
-                      </button>
-                      <button
-                        onClick={() => handleRejectVenue(venue.id)}
-                        className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-                      >
-                        <X size={18} />
-                        Reject
-                      </button>
-                    </div>
-                  </div>
+              {/* Venues to verify */}
+              <aside className="self-start rounded-[22px] bg-sky-soft p-6">
+                <div className="flex items-baseline justify-between">
+                  <h2 className="text-[20px] font-bold text-navy">Venues to verify</h2>
+                  <button onClick={() => setActiveSubTab('venues')} className="link-arrow">
+                    See all →
+                  </button>
                 </div>
-              ))}
+                {pendingVenues.length === 0 ? (
+                  <p className="mt-4 text-[13px] text-ink-muted">No new venues waiting.</p>
+                ) : (
+                  pendingVenues.map((venue) => (
+                    <div key={venue.id} className="border-b border-line py-4 last:border-b-0">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-[15px] font-bold text-navy">{venue.name}</p>
+                          <p className="truncate text-[12px] text-ink-muted">{venue.address}</p>
+                        </div>
+                        <div className="flex shrink-0 gap-1.5">
+                          <button onClick={() => handleRejectVenue(venue.id)} className="btn-ghost btn-sm h-8 px-3" aria-label={`Reject ${venue.name}`}>
+                            <X size={13} />
+                          </button>
+                          <button onClick={() => handleApproveVenue(venue.id)} className="btn-navy btn-sm h-8 px-3">
+                            Verify
+                          </button>
+                        </div>
+                      </div>
+                      <span className="tag mt-2 bg-[#fff1d6] text-[#8a5a00]">New · needs verification</span>
+                    </div>
+                  ))
+                )}
+              </aside>
             </div>
-            </section>
-            )}
 
-            {/* Published Events and Specials in Two Columns */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
+            <div className="mt-14 grid grid-cols-1 gap-8 lg:grid-cols-2">
               {/* Published Events Column */}
               <section>
-                <h2 className="font-display text-2xl text-foreground mb-4 flex items-center gap-2">
-                  <FileText size={24} className="text-green-500" />
+                <h2 className="mb-4 flex items-center gap-2 text-[22px] font-bold text-navy">
+                  <FileText size={24} className="text-link" />
                   Published Events
                 </h2>
                 <div className="flex flex-col sm:flex-row gap-3 mb-4">
@@ -1172,7 +1066,7 @@ export default function AdminPage() {
                         setPublishedEventsPage(1);
                       }}
                       placeholder="Search title or venue..."
-                      className="w-full pl-9 pr-3 py-2 text-sm bg-card border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50"
+                      className="h-10 w-full rounded-full border border-line bg-white pl-9 pr-3 text-[13px] text-navy outline-none focus:border-navy"
                     />
                   </div>
                   <div className="flex items-center gap-1 text-sm">
@@ -1180,14 +1074,14 @@ export default function AdminPage() {
                     <button
                       type="button"
                       onClick={() => { setPublishedEventsSort('date'); setPublishedEventsPage(1); }}
-                      className={`px-3 py-1.5 rounded-lg transition-colors ${publishedEventsSort === 'date' ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground hover:bg-muted/80'}`}
+                      className={`h-8 px-3 rounded-full text-[12px] transition-colors ${publishedEventsSort === 'date' ? 'bg-navy text-white font-bold' : 'bg-sky text-navy hover:bg-[#cfe2f3]'}`}
                     >
                       Date
                     </button>
                     <button
                       type="button"
                       onClick={() => { setPublishedEventsSort('venue'); setPublishedEventsPage(1); }}
-                      className={`px-3 py-1.5 rounded-lg transition-colors ${publishedEventsSort === 'venue' ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground hover:bg-muted/80'}`}
+                      className={`h-8 px-3 rounded-full text-[12px] transition-colors ${publishedEventsSort === 'venue' ? 'bg-navy text-white font-bold' : 'bg-sky text-navy hover:bg-[#cfe2f3]'}`}
                     >
                       Venue
                     </button>
@@ -1195,9 +1089,9 @@ export default function AdminPage() {
                 </div>
 
                 {upcomingPublishedEvents.length === 0 ? (
-                  <div className="bg-card border border-border rounded-xl p-8 text-center">
+                  <div className="rounded-[22px] bg-sky-soft p-8 text-center">
                     <Calendar size={48} className="mx-auto text-muted-foreground mb-4" />
-                    <h3 className="font-display text-xl text-foreground mb-2">No Upcoming Events</h3>
+                    <h3 className="mb-2 text-[18px] font-bold text-navy">No Upcoming Events</h3>
                     <p className="text-muted-foreground">Approved upcoming events will appear here.</p>
                   </div>
                 ) : (() => {
@@ -1211,7 +1105,7 @@ export default function AdminPage() {
                         {paginatedEvents.map((event) => (
                           <div
                             key={event.id}
-                            className="bg-card border border-border rounded-xl p-4 flex items-center justify-between gap-4"
+                            className="flex items-center justify-between gap-4 border-b border-line py-3"
                           >
                             <div className="flex items-center gap-4 flex-1 min-w-0">
                               <div className="relative w-16 h-12 rounded-lg overflow-hidden bg-muted flex-shrink-0">
@@ -1222,13 +1116,13 @@ export default function AdminPage() {
                                     sizes="64px"
                                   />
                                 ) : (
-                                  <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/10 to-secondary/10">
+                                  <div className="flex h-full w-full items-center justify-center bg-sky">
                                     <Calendar size={16} className="text-muted-foreground" />
                                   </div>
                                 )}
                               </div>
                               <div className="min-w-0">
-                                <h3 className="font-medium text-foreground truncate">{event.title}</h3>
+                                <h3 className="truncate font-bold text-navy">{event.title}</h3>
                                 <p className="text-sm text-muted-foreground">
                                   {format(parseISO(event.date), 'MMM d, yyyy')} • {event.venue.name}
                                 </p>
@@ -1237,13 +1131,13 @@ export default function AdminPage() {
                             <div className="flex items-center gap-2 flex-shrink-0">
                               <Link
                                 href={`/events/${event.id}`}
-                                className="px-3 py-1.5 text-sm text-primary hover:bg-primary/10 rounded-lg transition-colors"
+                                className="btn-ghost btn-sm"
                               >
                                 View
                               </Link>
                               <button
                                 onClick={() => handleCancelEvent(event.id)}
-                                className="flex items-center gap-1 px-3 py-1.5 text-sm text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                                className="btn-ghost btn-sm"
                               >
                                 <Ban size={14} />
                                 Cancel
@@ -1251,7 +1145,7 @@ export default function AdminPage() {
                               <button
                                 onClick={() => handleDeleteEvent(event)}
                                 disabled={deletingEventId === event.id}
-                                className="flex items-center gap-1 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+                                className="btn btn-sm border-[1.5px] border-transparent text-danger font-medium hover:bg-danger-tint"
                               >
                                 {deletingEventId === event.id ? (
                                   <Loader2 size={14} className="animate-spin" />
@@ -1269,7 +1163,7 @@ export default function AdminPage() {
                           <button
                             onClick={() => setPublishedEventsPage(prev => Math.max(1, prev - 1))}
                             disabled={publishedEventsPage === 1}
-                            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-foreground bg-card border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="btn-ghost btn-sm"
                           >
                             <ChevronLeft size={16} />
                             Previous
@@ -1280,7 +1174,7 @@ export default function AdminPage() {
                           <button
                             onClick={() => setPublishedEventsPage(prev => Math.min(totalPages, prev + 1))}
                             disabled={publishedEventsPage === totalPages}
-                            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-foreground bg-card border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="btn-ghost btn-sm"
                           >
                             Next
                             <ChevronRight size={16} />
@@ -1294,8 +1188,8 @@ export default function AdminPage() {
 
               {/* Published Food & Drink Specials Column */}
               <section>
-                <h2 className="font-display text-2xl text-foreground mb-4 flex items-center gap-2">
-                  <Utensils size={24} className="text-green-500" />
+                <h2 className="mb-4 flex items-center gap-2 text-[22px] font-bold text-navy">
+                  <Utensils size={24} className="text-link" />
                   Published Food & Drink Specials
                 </h2>
                 <div className="flex flex-col sm:flex-row gap-3 mb-4">
@@ -1309,7 +1203,7 @@ export default function AdminPage() {
                         setPublishedSpecialsPage(1);
                       }}
                       placeholder="Search title or venue..."
-                      className="w-full pl-9 pr-3 py-2 text-sm bg-card border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50"
+                      className="h-10 w-full rounded-full border border-line bg-white pl-9 pr-3 text-[13px] text-navy outline-none focus:border-navy"
                     />
                   </div>
                   <div className="flex items-center gap-1 text-sm">
@@ -1317,14 +1211,14 @@ export default function AdminPage() {
                     <button
                       type="button"
                       onClick={() => { setPublishedSpecialsSort('date'); setPublishedSpecialsPage(1); }}
-                      className={`px-3 py-1.5 rounded-lg transition-colors ${publishedSpecialsSort === 'date' ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground hover:bg-muted/80'}`}
+                      className={`h-8 px-3 rounded-full text-[12px] transition-colors ${publishedSpecialsSort === 'date' ? 'bg-navy text-white font-bold' : 'bg-sky text-navy hover:bg-[#cfe2f3]'}`}
                     >
                       Date
                     </button>
                     <button
                       type="button"
                       onClick={() => { setPublishedSpecialsSort('venue'); setPublishedSpecialsPage(1); }}
-                      className={`px-3 py-1.5 rounded-lg transition-colors ${publishedSpecialsSort === 'venue' ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground hover:bg-muted/80'}`}
+                      className={`h-8 px-3 rounded-full text-[12px] transition-colors ${publishedSpecialsSort === 'venue' ? 'bg-navy text-white font-bold' : 'bg-sky text-navy hover:bg-[#cfe2f3]'}`}
                     >
                       Venue
                     </button>
@@ -1332,9 +1226,9 @@ export default function AdminPage() {
                 </div>
 
                 {upcomingPublishedSpecials.length === 0 ? (
-                  <div className="bg-card border border-border rounded-xl p-8 text-center">
+                  <div className="rounded-[22px] bg-sky-soft p-8 text-center">
                     <Utensils size={48} className="mx-auto text-muted-foreground mb-4" />
-                    <h3 className="font-display text-xl text-foreground mb-2">No Upcoming Specials</h3>
+                    <h3 className="mb-2 text-[18px] font-bold text-navy">No Upcoming Specials</h3>
                     <p className="text-muted-foreground">Approved upcoming specials will appear here.</p>
                   </div>
                 ) : (() => {
@@ -1348,16 +1242,16 @@ export default function AdminPage() {
                         {paginatedSpecials.map((special) => (
                           <div
                             key={special.id}
-                            className="bg-card border border-border rounded-xl p-4 flex items-center justify-between gap-4"
+                            className="flex items-center justify-between gap-4 border-b border-line py-3"
                           >
                             <div className="flex items-center gap-4 flex-1 min-w-0">
                               <div className="w-16 h-12 rounded-lg overflow-hidden bg-muted flex-shrink-0">
-                                <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/10 to-secondary/10">
+                                <div className="flex h-full w-full items-center justify-center bg-sky">
                                   <Utensils size={16} className="text-muted-foreground" />
                                 </div>
                               </div>
                               <div className="min-w-0">
-                                <h3 className="font-medium text-foreground truncate">{special.title}</h3>
+                                <h3 className="truncate font-bold text-navy">{special.title}</h3>
                                 <p className="text-sm text-muted-foreground">
                                   {format(parseISO(special.date), 'MMM d, yyyy')} • {special.venue.name}
                                   {special.price && ` • ${formatPrice(special.price)}`}
@@ -1367,14 +1261,14 @@ export default function AdminPage() {
                             <div className="flex items-center gap-2 flex-shrink-0">
                               <Link
                                 href={`/events/${special.id}`}
-                                className="px-3 py-1.5 text-sm text-primary hover:bg-primary/10 rounded-lg transition-colors"
+                                className="btn-ghost btn-sm"
                               >
                                 View
                               </Link>
                               <button
                                 onClick={() => handleDeleteEvent(special)}
                                 disabled={deletingEventId === special.id}
-                                className="flex items-center gap-1 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+                                className="btn btn-sm border-[1.5px] border-transparent text-danger font-medium hover:bg-danger-tint"
                               >
                                 {deletingEventId === special.id ? (
                                   <Loader2 size={14} className="animate-spin" />
@@ -1392,7 +1286,7 @@ export default function AdminPage() {
                           <button
                             onClick={() => setPublishedSpecialsPage(prev => Math.max(1, prev - 1))}
                             disabled={publishedSpecialsPage === 1}
-                            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-foreground bg-card border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="btn-ghost btn-sm"
                           >
                             <ChevronLeft size={16} />
                             Previous
@@ -1403,7 +1297,7 @@ export default function AdminPage() {
                           <button
                             onClick={() => setPublishedSpecialsPage(prev => Math.min(totalPages, prev + 1))}
                             disabled={publishedSpecialsPage === totalPages}
-                            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-foreground bg-card border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="btn-ghost btn-sm"
                           >
                             Next
                             <ChevronRight size={16} />
@@ -1424,7 +1318,7 @@ export default function AdminPage() {
                   onClick={() => setPastEventsOpen((open) => !open)}
                   className="w-full flex items-center justify-between mb-4 text-left"
                 >
-                  <h2 className="font-display text-2xl text-foreground flex items-center gap-2">
+                  <h2 className="flex items-center gap-2 text-[22px] font-bold text-navy">
                     <FileText size={24} className="text-muted-foreground" />
                     Past Events
                     <span className="text-sm font-sans font-normal text-muted-foreground">
@@ -1446,7 +1340,7 @@ export default function AdminPage() {
                             setPastEventsPage(1);
                           }}
                           placeholder="Search title or venue..."
-                          className="w-full pl-9 pr-3 py-2 text-sm bg-card border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50"
+                          className="h-10 w-full rounded-full border border-line bg-white pl-9 pr-3 text-[13px] text-navy outline-none focus:border-navy"
                         />
                       </div>
                       <div className="flex items-center gap-1 text-sm">
@@ -1454,21 +1348,21 @@ export default function AdminPage() {
                         <button
                           type="button"
                           onClick={() => { setPastEventsSort('date'); setPastEventsPage(1); }}
-                          className={`px-3 py-1.5 rounded-lg transition-colors ${pastEventsSort === 'date' ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground hover:bg-muted/80'}`}
+                          className={`h-8 px-3 rounded-full text-[12px] transition-colors ${pastEventsSort === 'date' ? 'bg-navy text-white font-bold' : 'bg-sky text-navy hover:bg-[#cfe2f3]'}`}
                         >
                           Date
                         </button>
                         <button
                           type="button"
                           onClick={() => { setPastEventsSort('venue'); setPastEventsPage(1); }}
-                          className={`px-3 py-1.5 rounded-lg transition-colors ${pastEventsSort === 'venue' ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground hover:bg-muted/80'}`}
+                          className={`h-8 px-3 rounded-full text-[12px] transition-colors ${pastEventsSort === 'venue' ? 'bg-navy text-white font-bold' : 'bg-sky text-navy hover:bg-[#cfe2f3]'}`}
                         >
                           Venue
                         </button>
                       </div>
                     </div>
                     {pastPublishedEvents.length === 0 ? (
-                      <div className="bg-card border border-border rounded-xl p-6 text-center text-sm text-muted-foreground">
+                      <div className="rounded-[22px] bg-sky-soft p-6 text-center text-sm text-ink-muted">
                         No past events.
                       </div>
                     ) : (() => {
@@ -1481,10 +1375,10 @@ export default function AdminPage() {
                             {pageItems.map((event) => (
                               <div
                                 key={event.id}
-                                className="bg-card border border-border rounded-xl p-4 flex items-center justify-between gap-4"
+                                className="flex items-center justify-between gap-4 border-b border-line py-3"
                               >
                                 <div className="min-w-0 flex-1">
-                                  <h3 className="font-medium text-foreground truncate">{event.title}</h3>
+                                  <h3 className="truncate font-bold text-navy">{event.title}</h3>
                                   <p className="text-sm text-muted-foreground">
                                     {format(parseISO(event.date), 'MMM d, yyyy')} • {event.venue.name}
                                   </p>
@@ -1492,14 +1386,14 @@ export default function AdminPage() {
                                 <div className="flex items-center gap-2 flex-shrink-0">
                                   <Link
                                     href={`/events/${event.id}`}
-                                    className="px-3 py-1.5 text-sm text-primary hover:bg-primary/10 rounded-lg transition-colors"
+                                    className="btn-ghost btn-sm"
                                   >
                                     View
                                   </Link>
                                   <button
                                     onClick={() => handleDeleteEvent(event)}
                                     disabled={deletingEventId === event.id}
-                                    className="flex items-center gap-1 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+                                    className="btn btn-sm border-[1.5px] border-transparent text-danger font-medium hover:bg-danger-tint"
                                   >
                                     {deletingEventId === event.id ? (
                                       <Loader2 size={14} className="animate-spin" />
@@ -1517,7 +1411,7 @@ export default function AdminPage() {
                               <button
                                 onClick={() => setPastEventsPage((p) => Math.max(1, p - 1))}
                                 disabled={pastEventsPage === 1}
-                                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-foreground bg-card border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="btn-ghost btn-sm"
                               >
                                 <ChevronLeft size={16} />
                                 Previous
@@ -1528,7 +1422,7 @@ export default function AdminPage() {
                               <button
                                 onClick={() => setPastEventsPage((p) => Math.min(totalPages, p + 1))}
                                 disabled={pastEventsPage === totalPages}
-                                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-foreground bg-card border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="btn-ghost btn-sm"
                               >
                                 Next
                                 <ChevronRight size={16} />
@@ -1548,7 +1442,7 @@ export default function AdminPage() {
                   onClick={() => setPastSpecialsOpen((open) => !open)}
                   className="w-full flex items-center justify-between mb-4 text-left"
                 >
-                  <h2 className="font-display text-2xl text-foreground flex items-center gap-2">
+                  <h2 className="flex items-center gap-2 text-[22px] font-bold text-navy">
                     <Utensils size={24} className="text-muted-foreground" />
                     Past Specials
                     <span className="text-sm font-sans font-normal text-muted-foreground">
@@ -1570,7 +1464,7 @@ export default function AdminPage() {
                             setPastSpecialsPage(1);
                           }}
                           placeholder="Search title or venue..."
-                          className="w-full pl-9 pr-3 py-2 text-sm bg-card border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50"
+                          className="h-10 w-full rounded-full border border-line bg-white pl-9 pr-3 text-[13px] text-navy outline-none focus:border-navy"
                         />
                       </div>
                       <div className="flex items-center gap-1 text-sm">
@@ -1578,21 +1472,21 @@ export default function AdminPage() {
                         <button
                           type="button"
                           onClick={() => { setPastSpecialsSort('date'); setPastSpecialsPage(1); }}
-                          className={`px-3 py-1.5 rounded-lg transition-colors ${pastSpecialsSort === 'date' ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground hover:bg-muted/80'}`}
+                          className={`h-8 px-3 rounded-full text-[12px] transition-colors ${pastSpecialsSort === 'date' ? 'bg-navy text-white font-bold' : 'bg-sky text-navy hover:bg-[#cfe2f3]'}`}
                         >
                           Date
                         </button>
                         <button
                           type="button"
                           onClick={() => { setPastSpecialsSort('venue'); setPastSpecialsPage(1); }}
-                          className={`px-3 py-1.5 rounded-lg transition-colors ${pastSpecialsSort === 'venue' ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground hover:bg-muted/80'}`}
+                          className={`h-8 px-3 rounded-full text-[12px] transition-colors ${pastSpecialsSort === 'venue' ? 'bg-navy text-white font-bold' : 'bg-sky text-navy hover:bg-[#cfe2f3]'}`}
                         >
                           Venue
                         </button>
                       </div>
                     </div>
                     {pastPublishedSpecials.length === 0 ? (
-                      <div className="bg-card border border-border rounded-xl p-6 text-center text-sm text-muted-foreground">
+                      <div className="rounded-[22px] bg-sky-soft p-6 text-center text-sm text-ink-muted">
                         No past specials.
                       </div>
                     ) : (() => {
@@ -1605,10 +1499,10 @@ export default function AdminPage() {
                             {pageItems.map((special) => (
                               <div
                                 key={special.id}
-                                className="bg-card border border-border rounded-xl p-4 flex items-center justify-between gap-4"
+                                className="flex items-center justify-between gap-4 border-b border-line py-3"
                               >
                                 <div className="min-w-0 flex-1">
-                                  <h3 className="font-medium text-foreground truncate">{special.title}</h3>
+                                  <h3 className="truncate font-bold text-navy">{special.title}</h3>
                                   <p className="text-sm text-muted-foreground">
                                     {format(parseISO(special.date), 'MMM d, yyyy')} • {special.venue.name}
                                     {special.price && ` • ${formatPrice(special.price)}`}
@@ -1617,14 +1511,14 @@ export default function AdminPage() {
                                 <div className="flex items-center gap-2 flex-shrink-0">
                                   <Link
                                     href={`/events/${special.id}`}
-                                    className="px-3 py-1.5 text-sm text-primary hover:bg-primary/10 rounded-lg transition-colors"
+                                    className="btn-ghost btn-sm"
                                   >
                                     View
                                   </Link>
                                   <button
                                     onClick={() => handleDeleteEvent(special)}
                                     disabled={deletingEventId === special.id}
-                                    className="flex items-center gap-1 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+                                    className="btn btn-sm border-[1.5px] border-transparent text-danger font-medium hover:bg-danger-tint"
                                   >
                                     {deletingEventId === special.id ? (
                                       <Loader2 size={14} className="animate-spin" />
@@ -1642,7 +1536,7 @@ export default function AdminPage() {
                               <button
                                 onClick={() => setPastSpecialsPage((p) => Math.max(1, p - 1))}
                                 disabled={pastSpecialsPage === 1}
-                                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-foreground bg-card border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="btn-ghost btn-sm"
                               >
                                 <ChevronLeft size={16} />
                                 Previous
@@ -1653,7 +1547,7 @@ export default function AdminPage() {
                               <button
                                 onClick={() => setPastSpecialsPage((p) => Math.min(totalPages, p + 1))}
                                 disabled={pastSpecialsPage === totalPages}
-                                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-foreground bg-card border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="btn-ghost btn-sm"
                               >
                                 Next
                                 <ChevronRight size={16} />
@@ -1668,211 +1562,133 @@ export default function AdminPage() {
               </section>
             </div>
 
-            {/* Published Venues */}
-        <section className="mb-12">
-          <h2 className="font-display text-2xl text-foreground mb-6 flex items-center gap-2">
-            <Building size={24} className="text-green-500" />
-            Published Venues
-          </h2>
-
-          {publishedVenues.length === 0 ? (
-            <div className="bg-card border border-border rounded-xl p-8 text-center">
-              <Building size={48} className="mx-auto text-muted-foreground mb-4" />
-              <h3 className="font-display text-xl text-foreground mb-2">No Published Venues</h3>
-              <p className="text-muted-foreground">Venues will appear here once approved.</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {publishedVenues.map((venue) => (
-                <div
-                  key={venue.id}
-                  className="bg-card border border-border rounded-xl p-4 flex items-center justify-between gap-4"
-                >
-                  <div className="flex items-center gap-4 flex-1 min-w-0">
-                    <div className="relative w-16 h-12 rounded-lg overflow-hidden bg-muted flex-shrink-0">
-                      {venue.imageUrl ? (
-                        <SmartImage
-                          src={venue.imageUrl}
-                          alt={venue.name}
-                          sizes="64px"
-                        />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/10 to-secondary/10">
-                          <Building size={16} className="text-muted-foreground" />
-                        </div>
-                      )}
-                    </div>
-                    <div className="min-w-0">
-                      <h3 className="font-medium text-foreground truncate">{venue.name}</h3>
-                      <p className="text-sm text-muted-foreground flex items-center gap-1">
-                        <MapPin size={12} />
-                        {venue.address}
-                        {venue.eventCount !== undefined && (
-                          <span className="ml-2">• {venue.eventCount} event{venue.eventCount !== 1 ? 's' : ''}</span>
-                        )}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <Link
-                      href={`/venues/${venue.id}`}
-                      className="px-3 py-1.5 text-sm text-primary hover:bg-primary/10 rounded-lg transition-colors"
-                    >
-                      View
-                    </Link>
-                    <button
-                      onClick={() => handleEditVenue(venue)}
-                      className="flex items-center gap-1 px-3 py-1.5 text-sm text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                    >
-                      <Edit size={14} />
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDeleteVenue(venue.id)}
-                      disabled={deletingVenueId === venue.id}
-                      className="flex items-center gap-1 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
-                    >
-                      {deletingVenueId === venue.id ? (
-                        <Loader2 size={14} className="animate-spin" />
-                      ) : (
-                        <Trash2 size={14} />
-                      )}
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              ))}
-              </div>
-            )}
-          </section>
           </>
         )}
 
-        {activeSubTab === 'venue-promotions' && (
-          <section className="mb-12">
-            <h2 className="font-display text-2xl text-foreground mb-6 flex items-center gap-2">
-              <Building size={24} className="text-green-500" />
-              Published Venues
-            </h2>
-
-            {publishedVenues.length === 0 ? (
-              <div className="bg-card border border-border rounded-xl p-8 text-center">
-                <Building size={48} className="mx-auto text-muted-foreground mb-4" />
-                <h3 className="font-display text-xl text-foreground mb-2">No Published Venues</h3>
-                <p className="text-muted-foreground">Venues will appear here once approved.</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {publishedVenues.map((venue) => (
-                  <div
-                    key={venue.id}
-                    className="bg-card border border-border rounded-xl p-4 flex items-center justify-between gap-4"
-                  >
-                    <div className="flex items-center gap-4 flex-1 min-w-0">
-                      <div className="relative w-16 h-12 rounded-lg overflow-hidden bg-muted flex-shrink-0">
-                        {venue.imageUrl ? (
-                          <SmartImage
-                            src={venue.imageUrl}
-                            alt={venue.name}
-                            sizes="64px"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/10 to-secondary/10">
-                            <Building size={16} className="text-muted-foreground" />
-                          </div>
-                        )}
-                      </div>
-                      <div className="min-w-0">
-                        <h3 className="font-medium text-foreground truncate">{venue.name}</h3>
-                        <p className="text-sm text-muted-foreground flex items-center gap-1">
-                          <MapPin size={12} />
-                          {venue.address}
-                          {venue.eventCount !== undefined && (
-                            <span className="ml-2">• {venue.eventCount} event{venue.eventCount !== 1 ? 's' : ''}</span>
-                          )}
-                          <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-medium ${
-                            (venue.promotionTier || 'standard') === 'featured' ? 'bg-yellow-100 text-yellow-800' :
-                            (venue.promotionTier || 'standard') === 'promoted' ? 'bg-blue-100 text-blue-800' :
-                            'bg-gray-100 text-gray-800'
-                          }`}>
-                            {(venue.promotionTier || 'standard') === 'featured' ? 'Featured' :
-                             (venue.promotionTier || 'standard') === 'promoted' ? 'Promoted' : 'Standard'}
-                          </span>
-                        </p>
-                      </div>
+        {activeSubTab === 'venues' && (
+          <div className="flex flex-col gap-12">
+            {pendingVenues.length > 0 && (
+              <section>
+                <div className="flex items-baseline justify-between border-b-[1.5px] border-navy pb-2.5">
+                  <h2 className="text-[22px] font-bold text-navy">New venues to verify</h2>
+                  <span className="text-[12px] text-ink-muted">{pendingVenues.length} waiting</span>
+                </div>
+                {pendingVenues.map((venue) => (
+                  <div key={venue.id} className="flex flex-col gap-3 border-b border-line py-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="text-[16px] font-bold text-navy">{venue.name}</p>
+                      <p className="flex items-center gap-1 text-[12px] text-ink-muted">
+                        <MapPin size={12} className="text-link" />
+                        {venue.address}
+                      </p>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <Link
-                        href={`/venues/${venue.id}`}
-                        className="px-3 py-1.5 text-sm text-primary hover:bg-primary/10 rounded-lg transition-colors"
-                      >
-                        View
-                      </Link>
-                      <button
-                        onClick={() => handleEditVenue(venue)}
-                        className="flex items-center gap-1 px-3 py-1.5 text-sm text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                      >
-                        <Edit size={14} />
-                        Edit
+                    <div className="flex gap-2">
+                      <button onClick={() => handleRejectVenue(venue.id)} className="btn-ghost btn-sm">
+                        Reject
                       </button>
-                      <button
-                        onClick={() => handleDeleteVenue(venue.id)}
-                        disabled={deletingVenueId === venue.id}
-                        className="flex items-center gap-1 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
-                      >
-                        {deletingVenueId === venue.id ? (
-                          <Loader2 size={14} className="animate-spin" />
-                        ) : (
-                          <Trash2 size={14} />
-                        )}
-                        Delete
+                      <button onClick={() => handleApproveVenue(venue.id)} className="btn-navy btn-sm">
+                        Verify
                       </button>
                     </div>
                   </div>
                 ))}
+              </section>
+            )}
+
+            <section>
+              <div className="flex items-baseline justify-between border-b-[1.5px] border-navy pb-2.5">
+                <h2 className="text-[22px] font-bold text-navy">Published venues</h2>
+                <span className="text-[12px] text-ink-muted">{publishedVenues.length} venues</span>
               </div>
+              {loadingVenues ? (
+                <div className="flex justify-center py-10">
+                  <Loader2 size={24} className="animate-spin text-navy" />
+                </div>
+              ) : publishedVenues.length === 0 ? (
+                <p className="py-8 text-[14px] text-ink-muted">Venues will appear here once approved.</p>
+              ) : (
+                publishedVenues.map((venue) => (
+                  <div key={venue.id} className="flex items-center justify-between gap-4 border-b border-line py-3">
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
+                      <div className="relative flex h-10 w-12 shrink-0 items-center justify-center overflow-hidden rounded-[10px] bg-sky text-link">
+                        {venue.imageUrl ? <SmartImage src={venue.imageUrl} alt={venue.name} sizes="48px" /> : <Building size={15} />}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-[15px] font-bold text-navy">{venue.name}</p>
+                        <p className="truncate text-[12px] text-ink-muted">
+                          {venue.address}
+                          {venue.eventCount !== undefined && ` · ${venue.eventCount} event${venue.eventCount !== 1 ? 's' : ''}`}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <Link href={`/venues/${venue.id}`} className="btn-ghost btn-sm">
+                        View
+                      </Link>
+                      <button onClick={() => handleEditVenue(venue)} className="btn-outline btn-sm">
+                        <Edit size={13} /> Edit
+                      </button>
+                      <button
+                        onClick={() => handleDeleteVenue(venue.id)}
+                        disabled={deletingVenueId === venue.id}
+                        className="flex h-9 w-9 items-center justify-center rounded-full text-danger hover:bg-danger-tint disabled:opacity-50"
+                        aria-label={`Delete ${venue.name}`}
+                      >
+                        {deletingVenueId === venue.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </section>
+          </div>
+        )}
+
+        {activeSubTab === 'venue-promotions' && (
+          <section>
+            <div className="flex flex-wrap items-baseline justify-between gap-2 border-b-[1.5px] border-navy pb-2.5">
+              <h2 className="text-[22px] font-bold text-navy">Venue promotions</h2>
+              <span className="text-[12px] text-ink-muted">Featured venues appear first on Today and Coming up</span>
+            </div>
+            {publishedVenues.length === 0 ? (
+              <p className="py-8 text-[14px] text-ink-muted">Venues will appear here once approved.</p>
+            ) : (
+              [...publishedVenues]
+                .sort((a, b) => {
+                  const rank = (t: string) => (t === 'featured' ? 0 : t === 'promoted' ? 1 : 2);
+                  return rank(tierOf(a)) - rank(tierOf(b)) || a.name.localeCompare(b.name);
+                })
+                .map((venue) => (
+                  <div key={venue.id} className="flex flex-col gap-3 border-b border-line py-3.5 sm:flex-row sm:items-center sm:justify-between">
+                    <Link href={`/venues/${venue.id}`} className="truncate text-[15px] font-bold text-navy hover:underline">
+                      {venue.name}
+                    </Link>
+                    <div className="segmented self-start sm:self-auto">
+                      {(['standard', 'promoted', 'featured'] as const).map((tier) => (
+                        <button
+                          key={tier}
+                          onClick={() => tierOf(venue) !== tier && handleSaveVenue({ ...venue, promotionTier: tier })}
+                          className={`segmented-item h-8 px-4 capitalize ${
+                            tierOf(venue) === tier ? (tier === 'featured' ? '!bg-sun !text-navy font-bold' : 'bg-navy text-white font-bold') : ''
+                          }`}
+                        >
+                          {tier}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))
             )}
           </section>
         )}
-
-        {/* Quick Links */}
-        <section>
-          <h2 className="font-display text-2xl text-foreground mb-6">Quick Actions</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            <Link
-              href="/events"
-              className="bg-card border border-border rounded-xl p-6 hover:border-primary/50 transition-colors"
-            >
-              <FileText size={24} className="text-primary mb-3" />
-              <h3 className="font-medium text-foreground mb-1">View All Events</h3>
-              <p className="text-sm text-muted-foreground">Browse and manage published events</p>
-            </Link>
-            <Link
-              href="/venues"
-              className="bg-card border border-border rounded-xl p-6 hover:border-primary/50 transition-colors"
-            >
-              <MapPin size={24} className="text-primary mb-3" />
-              <h3 className="font-medium text-foreground mb-1">Manage Venues</h3>
-              <p className="text-sm text-muted-foreground">View and edit venue listings</p>
-            </Link>
-            <Link
-              href="/submit"
-              className="bg-card border border-border rounded-xl p-6 hover:border-primary/50 transition-colors"
-            >
-              <Calendar size={24} className="text-primary mb-3" />
-              <h3 className="font-medium text-foreground mb-1">Add Event</h3>
-              <p className="text-sm text-muted-foreground">Create a new event directly</p>
-            </Link>
-          </div>
-        </section>
       </div>
 
       {/* Edit Venue Modal */}
       {editingVenue && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-card border border-border rounded-2xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/50 p-4">
+          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-[22px] bg-white p-6">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="font-display text-2xl text-foreground">Edit Venue</h2>
+              <h2 className="text-[22px] font-bold text-navy">Edit Venue</h2>
               <button
                 onClick={() => setEditingVenue(null)}
                 className="text-muted-foreground hover:text-foreground"

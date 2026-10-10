@@ -1,82 +1,401 @@
 'use client';
 
-import { useState, useMemo, Suspense, useRef, useEffect } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useState, useMemo, Suspense, useRef, useEffect, type ReactNode } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Search, X, Calendar, Loader2, ChevronDown, Utensils, MapPin, ArrowRight, Clock, Heart } from 'lucide-react';
-import { format, parseISO, isEqual, startOfDay, subDays, subMonths, addDays, isToday, isTomorrow, isWithinInterval } from 'date-fns';
-import { EventCard, DatePicker, Toast } from '@/components';
+import {
+  Search,
+  X,
+  Calendar,
+  Loader2,
+  ChevronDown,
+  ListFilter,
+  SlidersHorizontal,
+  Music,
+  PartyPopper,
+  Ticket,
+  Sun,
+  Trophy,
+  Star,
+  Store,
+  Pencil,
+  Users,
+  Wine,
+  Check,
+  Utensils,
+  Smile,
+} from 'lucide-react';
+import { format, parseISO, addDays, startOfDay, isWithinInterval, isToday, isTomorrow, subDays, subMonths } from 'date-fns';
+import { DatePicker, Toast } from '@/components';
 import { useEvents } from '@/contexts/EventsContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { useRouter } from 'next/navigation';
-import { EventCategory, categoryLabels, categoryColors, categoryColorsMuted, categoryColorsActive, browseCategories } from '@/types/event';
+import type { Event, EventCategory } from '@/types/event';
+import { categoryLabels, categoryDotColors } from '@/constants/categories';
 import { formatPrice } from '@/utils/price';
+import { getRecurrenceLabel } from '@/utils/recurrenceLabel';
+import { getPromotionTierPriority } from '@/utils/events';
+import { DKMark, SaveButton, formatTime, formatTimeShort, isAllDayEvent, isDowntown, primaryCategory } from '@/components/brand';
+
 type TabType = 'all' | 'events' | 'deals';
-type PastEventsRange = 'none' | 'week' | 'month' | '3months' | '6months';
+type DateWindow =
+  | { kind: 'day'; date: string }
+  | { kind: 'week' }
+  | { kind: 'any' }
+  | { kind: 'range'; start: string; end: string };
+type PastRange = 'none' | 'week' | 'month' | '3months';
+type SpecialFilter = 'all' | 'food' | 'drink' | 'now' | 'happy';
+type SortMode = 'time' | 'popular' | 'free';
 
-// Helper to get holiday/special event for a date
-function getHoliday(date: Date): string | null {
-  const month = date.getMonth() + 1; // 1-indexed
-  const day = date.getDate();
-  const dayOfWeek = date.getDay(); // 0 = Sunday
-  
-  // Fixed date holidays
-  const fixedHolidays: { [key: string]: string } = {
-    '1-1': "New Year's Day 🎉",
-    '2-14': "Valentine's Day 💕",
-    '3-17': "St. Patrick's Day ☘️",
-    '4-1': "April Fools' Day 🃏",
-    '5-4': 'Star Wars Day ⭐',
-    '6-21': 'Summer Solstice ☀️',
-    '7-1': 'Canada Day 🍁',
-    '7-4': 'Independence Day 🇺🇸',
-    '10-31': 'Halloween 🎃',
-    '11-11': 'Remembrance Day 🌺',
-    '12-24': 'Christmas Eve 🎄',
-    '12-25': 'Christmas Day 🎁',
-    '12-26': 'Boxing Day 📦',
-    '12-31': "New Year's Eve 🥂",
-  };
-  
-  const key = `${month}-${day}`;
-  if (fixedHolidays[key]) {
-    return fixedHolidays[key];
-  }
-  
-  // Variable holidays (approximate)
-  // Mother's Day - 2nd Sunday of May
-  if (month === 5 && dayOfWeek === 0 && day >= 8 && day <= 14) {
-    return "Mother's Day 💐";
-  }
-  // Father's Day - 3rd Sunday of June
-  if (month === 6 && dayOfWeek === 0 && day >= 15 && day <= 21) {
-    return "Father's Day 👔";
-  }
-  // Thanksgiving (Canada) - 2nd Monday of October
-  if (month === 10 && dayOfWeek === 1 && day >= 8 && day <= 14) {
-    return 'Thanksgiving 🦃';
-  }
-  // Labour Day - 1st Monday of September
-  if (month === 9 && dayOfWeek === 1 && day <= 7) {
-    return 'Labour Day 👷';
-  }
-  // Victoria Day - Last Monday before May 25
-  if (month === 5 && dayOfWeek === 1 && day >= 18 && day <= 24) {
-    return 'Victoria Day 👑';
-  }
-  
-  return null;
+const DOWNTOWN = 'downtown' as const;
+type RailFilter = EventCategory | typeof DOWNTOWN;
+
+const railCategories: { id: RailFilter; label: string; tile: string; icon: ReactNode }[] = [
+  { id: DOWNTOWN, label: 'Downtown Kingston', tile: 'bg-[#db3247]', icon: <DKMark size={20} /> },
+  { id: 'live-music', label: 'Live music', tile: 'bg-[#ff6b4a] text-white', icon: <Music size={17} /> },
+  { id: 'activity-nights', label: 'Activity nights', tile: 'bg-[#1b2a41] text-white', icon: <PartyPopper size={17} /> },
+  { id: 'concert', label: 'Concerts', tile: 'bg-[#3e8ed0] text-white', icon: <Ticket size={17} /> },
+  { id: 'daytime', label: 'Daytime events', tile: 'bg-[#ffb547] text-[#1b2a41]', icon: <Sun size={17} /> },
+  { id: 'sports', label: 'Sports', tile: 'bg-[#3e7ca6] text-white', icon: <Trophy size={17} /> },
+  { id: 'theatre', label: 'Theatre & Arts', tile: 'bg-[#ffe1da] text-[#b3412a]', icon: <Star size={17} /> },
+  { id: 'market', label: 'Markets', tile: 'bg-[#fff1d6] text-[#8a5a00]', icon: <Store size={17} /> },
+  { id: 'workshop', label: 'Workshops & classes', tile: 'bg-[#ddebf7] text-[#1f5f94]', icon: <Pencil size={17} /> },
+  { id: 'family', label: 'Family activities', tile: 'bg-[#ffe8d6] text-[#a84a12]', icon: <Users size={17} /> },
+  { id: '19plus', label: '19+', tile: 'bg-[#c4452b] text-white', icon: <Wine size={17} /> },
+];
+
+const popularCategories: { label: string; category?: EventCategory; tab?: TabType }[] = [
+  { label: 'Live music', category: 'live-music' },
+  { label: 'Trivia', category: 'trivia' },
+  { label: 'Activity nights', category: 'activity-nights' },
+  { label: 'Food & drink', tab: 'deals' },
+  { label: 'Family', category: 'family' },
+  { label: 'Markets', category: 'market' },
+];
+
+/* ---------------- helpers ---------------- */
+
+function matchesQuery(event: Event, query: string) {
+  if (!query) return true;
+  const q = query.toLowerCase();
+  return (
+    event.title.toLowerCase().includes(q) ||
+    event.description.toLowerCase().includes(q) ||
+    event.venue.name.toLowerCase().includes(q)
+  );
 }
 
-// Helper function to get promotion tier priority
-function getPromotionTierPriority(tier?: string): number {
-  switch (tier) {
-    case 'featured': return 3;
-    case 'promoted': return 2;
-    case 'standard': return 1;
-    default: return 1;
-  }
+function bandFor(event: Event): string {
+  if (isAllDayEvent(event)) return 'All day';
+  const hour = parseInt(event.startTime.slice(0, 2), 10);
+  if (hour < 12) return 'Morning';
+  if (hour < 17) return 'Afternoon';
+  if (hour < 22) return 'Evening';
+  return 'Late night';
 }
+const BAND_ORDER = ['All day', 'Morning', 'Afternoon', 'Evening', 'Late night'];
+
+function specialBand(event: Event): string {
+  if (isAllDayEvent(event)) return 'All day';
+  const startHour = parseInt(event.startTime.slice(0, 2), 10);
+  const endHour = event.endTime ? parseInt(event.endTime.slice(0, 2), 10) : 24;
+  if (startHour < 17 && endHour <= 21 && endHour > 0) return 'Happy hour';
+  return 'Evening';
+}
+const SPECIAL_BAND_ORDER = ['All day', 'Happy hour', 'Evening'];
+
+function isOnNow(event: Event) {
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
+  if (event.date !== todayStr) return false;
+  if (isAllDayEvent(event)) return true;
+  const now = format(new Date(), 'HH:mm');
+  const end = event.endTime && event.endTime > event.startTime ? event.endTime : '23:59';
+  return event.startTime <= now && now <= end;
+}
+
+function specialKind(event: Event): 'food' | 'drink' | 'happy' {
+  if (specialBand(event) === 'Happy hour') return 'happy';
+  if (event.categories.includes('drink') && !event.categories.includes('food')) return 'drink';
+  return 'food';
+}
+
+function groupBy<T>(items: T[], key: (item: T) => string, order?: string[]): [string, T[]][] {
+  const map = new Map<string, T[]>();
+  items.forEach((item) => {
+    const k = key(item);
+    if (!map.has(k)) map.set(k, []);
+    map.get(k)!.push(item);
+  });
+  const entries = [...map.entries()];
+  if (order) entries.sort(([a], [b]) => order.indexOf(a) - order.indexOf(b));
+  else entries.sort(([a], [b]) => a.localeCompare(b));
+  return entries;
+}
+
+function dayLabel(dateStr: string) {
+  const d = parseISO(dateStr);
+  if (isToday(d)) return `Today · ${format(d, 'EEEE, MMMM d')}`;
+  if (isTomorrow(d)) return `Tomorrow · ${format(d, 'EEEE, MMMM d')}`;
+  return format(d, 'EEEE, MMMM d');
+}
+
+/* ---------------- small UI pieces ---------------- */
+
+function Band({ label }: { label: string }) {
+  return <p className="pt-7 pb-1.5 text-[12px] font-medium uppercase tracking-[0.14em] text-ink-muted">{label}</p>;
+}
+
+function CategoryDot({ category }: { category?: EventCategory }) {
+  return <span className={`h-[7px] w-[7px] shrink-0 rounded-full ${category ? categoryDotColors[category] : 'bg-ink-muted'}`} />;
+}
+
+function TextTabs<T extends string>({
+  options,
+  value,
+  onChange,
+}: {
+  options: { id: T; label: string }[];
+  value: T;
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-[18px] pt-1 pb-2">
+      {options.map((o) => (
+        <button
+          key={o.id}
+          onClick={() => onChange(o.id)}
+          className={`text-[13px] text-navy ${
+            value === o.id ? 'font-bold underline underline-offset-[6px] decoration-2' : 'text-ink-muted hover:text-navy'
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* ---------------- Event rows ---------------- */
+
+function CompactEventRow({ event }: { event: Event }) {
+  const cat = primaryCategory(event);
+  const price = formatPrice(event.price) || 'Free';
+  return (
+    <Link href={`/events/${event.id}`} className="group flex items-center gap-5 border-b border-line py-4">
+      <span className="w-[72px] shrink-0 text-[14px] font-medium text-navy">
+        {isAllDayEvent(event) ? 'All day' : formatTime(event.startTime)}
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col gap-1">
+        <span className="truncate text-[16px] font-bold text-navy group-hover:underline">{event.title}</span>
+        <span className="flex min-w-0 items-center gap-2 text-[13px] text-ink-muted">
+          <CategoryDot category={cat} />
+          <span className="truncate">
+            {cat ? categoryLabels[cat] : 'Event'} · {event.venue.name}
+          </span>
+        </span>
+      </span>
+      <span className={`shrink-0 text-[14px] font-medium ${price === 'Free' ? 'text-link' : 'text-navy'}`}>{price}</span>
+    </Link>
+  );
+}
+
+function DetailedEventRow({
+  event,
+  saved,
+  onSave,
+}: {
+  event: Event;
+  saved: boolean;
+  onSave: () => void;
+}) {
+  const cat = primaryCategory(event);
+  const price = formatPrice(event.price) || 'Free';
+  const sub = event.isRecurring
+    ? getRecurrenceLabel({
+        recurrencePattern: event.recurrencePattern,
+        recurrenceDays: event.recurrenceDays,
+        recurrenceDay: event.recurrenceDay,
+      }).replace(/^Every /, 'Weekly · ')
+    : event.ticketUrl
+    ? 'Tickets →'
+    : event.categories.includes('19plus')
+    ? '19+ · ID required'
+    : event.categories.includes('family')
+    ? 'All ages'
+    : '';
+  return (
+    <div className="group relative flex items-start gap-5 border-b border-line py-4">
+      <Link href={`/events/${event.id}`} className="absolute inset-0" aria-label={event.title} />
+      <span className="flex w-[72px] shrink-0 flex-col text-[13px] text-navy pointer-events-none">
+        <span className="font-medium">{isAllDayEvent(event) ? 'All day' : formatTime(event.startTime)}</span>
+        {event.endTime && !isAllDayEvent(event) && (
+          <span className="text-ink-muted">– {formatTime(event.endTime)}</span>
+        )}
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col gap-1 pointer-events-none">
+        <span className="truncate text-[16px] font-bold text-navy group-hover:underline">{event.title}</span>
+        <span className="flex min-w-0 items-center gap-2 text-[13px] text-ink-muted">
+          <CategoryDot category={cat} />
+          <span className="truncate">
+            {cat ? categoryLabels[cat] : 'Event'} · {event.venue.name}
+            {event.venue.neighborhood ? ` · ${event.venue.neighborhood}` : ''}
+          </span>
+        </span>
+        <span className="line-clamp-1 text-[13px] text-ink-muted">{event.description}</span>
+      </span>
+      <span className="flex shrink-0 flex-col items-end text-right pointer-events-none">
+        <span className={`text-[14px] font-medium ${price === 'Free' ? 'text-link' : 'text-navy'}`}>{price}</span>
+        {sub && <span className="text-[12px] text-ink-muted">{sub}</span>}
+      </span>
+      <SaveButton saved={saved} onClick={onSave} size={16} className="relative z-10 -mt-1" />
+    </div>
+  );
+}
+
+function SpecialListRow({ event, saved, onSave }: { event: Event; saved: boolean; onSave: () => void }) {
+  const kind = specialKind(event);
+  const onNow = isOnNow(event);
+  const recurrence = event.isRecurring
+    ? getRecurrenceLabel({
+        recurrencePattern: event.recurrencePattern,
+        recurrenceDays: event.recurrenceDays,
+        recurrenceDay: event.recurrenceDay,
+      })
+    : format(parseISO(event.date), 'EEE, MMM d');
+  return (
+    <div className="group relative flex items-start gap-5 border-b border-line py-4">
+      <Link href={`/events/${event.id}`} className="absolute inset-0" aria-label={event.title} />
+      <span className="flex w-[72px] shrink-0 flex-col text-[13px] text-navy pointer-events-none">
+        {isAllDayEvent(event) ? (
+          <span className="font-medium">All day</span>
+        ) : (
+          <>
+            <span className="font-medium">{formatTime(event.startTime)}</span>
+            <span className="text-ink-muted">– {event.endTime ? formatTime(event.endTime) : 'close'}</span>
+          </>
+        )}
+      </span>
+      <span
+        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] pointer-events-none ${
+          kind === 'drink' ? 'bg-sky text-link-deep' : kind === 'happy' ? 'bg-[#fff1d6] text-[#8a5a00]' : 'bg-[#ffe8d6] text-[#a84a12]'
+        }`}
+      >
+        {kind === 'drink' ? <Wine size={15} /> : kind === 'happy' ? <Smile size={15} /> : <Utensils size={15} />}
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col gap-1 pointer-events-none">
+        <span className="truncate text-[16px] font-bold text-navy group-hover:underline">{event.title}</span>
+        <span className="truncate text-[13px] text-ink-muted">
+          {event.venue.name}
+          {event.venue.neighborhood ? ` · ${event.venue.neighborhood}` : ''}
+        </span>
+        <span className="line-clamp-1 text-[13px] text-ink-muted">{event.description}</span>
+      </span>
+      <span className="flex shrink-0 flex-col items-end gap-1 text-right pointer-events-none">
+        {onNow && (
+          <span className="tag bg-success-tint text-success normal-case tracking-normal font-medium gap-1">
+            <span className="h-1.5 w-1.5 rounded-full bg-success" /> On now
+          </span>
+        )}
+        <span className="text-[12px] text-ink-muted">{recurrence}</span>
+      </span>
+      <SaveButton saved={saved} onClick={onSave} size={16} className="relative z-10 -mt-1" />
+    </div>
+  );
+}
+
+/* ---------------- Category rail ---------------- */
+
+function CategoryRail({
+  selected,
+  onToggle,
+  onClear,
+  moreFilters,
+}: {
+  selected: RailFilter[];
+  onToggle: (id: RailFilter) => void;
+  onClear: () => void;
+  moreFilters: ReactNode;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [showMore, setShowMore] = useState(false);
+  return (
+    <aside className="lg:sticky lg:top-24 self-start">
+      <div
+        className={`flex rounded-[22px] border border-line bg-white px-3 py-3.5 gap-1.5 lg:flex-col ${
+          expanded ? 'lg:w-[230px] lg:items-stretch' : 'lg:items-center'
+        } overflow-x-auto no-scrollbar`}
+      >
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="relative flex h-11 min-w-11 shrink-0 items-center justify-center gap-2 rounded-[10px] bg-[#f1f4f8] px-3 text-navy"
+          title={expanded ? 'Collapse categories' : 'Show category names'}
+        >
+          <ListFilter size={18} />
+          {expanded && <span className="hidden lg:inline text-[13px] font-bold">Categories</span>}
+          {selected.length > 0 && (
+            <span className="absolute -top-1 left-[30px] flex h-[18px] w-[18px] items-center justify-center rounded-full bg-coral text-[12px] font-bold text-navy">
+              {selected.length}
+            </span>
+          )}
+        </button>
+        <div className="mx-auto my-1 hidden h-px w-8 bg-line lg:block" />
+        {railCategories.map((c) => {
+          const active = selected.includes(c.id);
+          return (
+            <button
+              key={c.id}
+              onClick={() => onToggle(c.id)}
+              title={c.label}
+              aria-pressed={active}
+              className={`relative flex h-11 shrink-0 items-center gap-3 rounded-[12px] ${
+                expanded ? 'lg:justify-start lg:px-1.5' : 'justify-center'
+              } min-w-11 ${active ? 'border-2 border-navy bg-[#eef5fb]' : 'border-2 border-transparent hover:bg-sky-soft'}`}
+            >
+              <span
+                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] ${c.tile} ${
+                  active || selected.length === 0 ? '' : 'opacity-55'
+                } ${expanded ? '' : 'mx-auto lg:mx-0'}`}
+              >
+                {c.icon}
+              </span>
+              {expanded && <span className="hidden lg:inline truncate pr-2 text-[13px] font-medium text-navy">{c.label}</span>}
+              {active && (
+                <span className="absolute -top-1.5 left-[30px] flex h-4 w-4 items-center justify-center rounded-full border-2 border-white bg-navy text-white">
+                  <Check size={9} strokeWidth={3} />
+                </span>
+              )}
+            </button>
+          );
+        })}
+        <div className="mx-auto my-1 hidden h-px w-8 bg-line lg:block" />
+        <div className="relative">
+          <button
+            onClick={() => setShowMore(!showMore)}
+            className="flex h-11 min-w-11 w-full shrink-0 items-center justify-center gap-2 rounded-[10px] text-navy hover:bg-sky-soft"
+            title="More filters"
+          >
+            <SlidersHorizontal size={18} />
+            {expanded && <span className="hidden lg:inline text-[13px] font-medium">More filters</span>}
+          </button>
+          {showMore && (
+            <>
+              <div className="fixed inset-0 z-30" onClick={() => setShowMore(false)} />
+              <div className="absolute left-0 top-full z-40 mt-2 w-64 rounded-[18px] border border-line bg-white p-4 shadow-[0_18px_40px_-12px_rgba(27,42,65,0.25)] lg:left-full lg:top-auto lg:bottom-0 lg:ml-3 lg:mt-0">
+                {moreFilters}
+                {selected.length > 0 && (
+                  <button onClick={onClear} className="mt-3 text-[13px] font-medium text-link hover:underline">
+                    Clear categories
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+/* ---------------- Page content ---------------- */
 
 function EventsContent() {
   const searchParams = useSearchParams();
@@ -86,1349 +405,579 @@ function EventsContent() {
   const tabParam = searchParams.get('tab');
   const initialTab: TabType = tabParam === 'deals' ? 'deals' : tabParam === 'events' ? 'events' : 'all';
 
-  const { events: allEventsFromContext, getUpcomingEvents, isLiked, toggleLike, getLikeCount, isLoading } = useEvents();
+  const { events: allEvents, getUpcomingEvents, isLiked, toggleLike, getLikeCount, isLoading } = useEvents();
   const { user } = useAuth();
-  
+
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
   const [activeTab, setActiveTab] = useState<TabType>(initialTab);
   const [showToast, setShowToast] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategories, setSelectedCategories] = useState<EventCategory[]>(
-    initialCategory ? [initialCategory] : []
+  const [selected, setSelected] = useState<RailFilter[]>(initialCategory ? [initialCategory] : []);
+  const [dateWindow, setDateWindow] = useState<DateWindow>(
+    initialDate ? { kind: 'day', date: initialDate } : { kind: 'day', date: todayStr }
   );
-  const [selectedFoodDrinkFilter, setSelectedFoodDrinkFilter] = useState<('food' | 'drink')[]>([]);
-  const [dateFilterMode, setDateFilterMode] = useState<'none' | 'single' | 'range'>(initialDate ? 'single' : 'none');
-  const [dateFilter, setDateFilter] = useState(initialDate || '');
-  const [dateRangeStart, setDateRangeStart] = useState('');
-  const [dateRangeEnd, setDateRangeEnd] = useState('');
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [tempDateMode, setTempDateMode] = useState<'single' | 'range'>('single');
-  const datePickerRef = useRef<HTMLDivElement>(null);
+  const [pastRange, setPastRange] = useState<PastRange>('none');
   const [freeOnly, setFreeOnly] = useState(false);
-  const [maxPrice, setMaxPrice] = useState<number>(100);
-  const [priceFilterEnabled, setPriceFilterEnabled] = useState(false);
-  const [pastEventsRange, setPastEventsRange] = useState<PastEventsRange>('none');
-  const [showPastDropdown, setShowPastDropdown] = useState(false);
+  const [specialFilter, setSpecialFilter] = useState<SpecialFilter>('all');
+  const [sideSpecialFilter, setSideSpecialFilter] = useState<SpecialFilter>('all');
+  const [sortMode, setSortMode] = useState<SortMode>('time');
+  const [showAllEvents, setShowAllEvents] = useState(false);
+  const [showAllSpecials, setShowAllSpecials] = useState(false);
+  const [showDateMenu, setShowDateMenu] = useState(false);
+  const [pickMode, setPickMode] = useState<'single' | 'range'>('single');
+  const [pickDate, setPickDate] = useState('');
+  const [pickStart, setPickStart] = useState('');
+  const [pickEnd, setPickEnd] = useState('');
+  const dateMenuRef = useRef<HTMLDivElement>(null);
 
-  const upcomingEvents = getUpcomingEvents();
-  const today = new Date();
-  
-  // Calculate date range for past events
-  const getDateCutoff = () => {
-    switch (pastEventsRange) {
-      case 'week': return subDays(today, 7);
-      case 'month': return subMonths(today, 1);
-      case '3months': return subMonths(today, 3);
-      case '6months': return subMonths(today, 6);
-      default: return today;
-    }
-  };
-
-  // Get events based on past events filter
-  const eventsPool = useMemo(() => {
-    if (pastEventsRange === 'none') {
-      return upcomingEvents;
-    }
-    const cutoff = getDateCutoff();
-    return allEventsFromContext.filter(event => {
-      const eventDate = parseISO(event.date);
-      return eventDate >= cutoff;
-    });
-  }, [allEventsFromContext, upcomingEvents, pastEventsRange]);
-
-  // Separate events and deals from the pool
-  const eventsOnly = useMemo(() => {
-    return eventsPool.filter(event => !event.categories.includes('food-deal'));
-  }, [eventsPool]);
-
-  const dealsOnly = useMemo(() => {
-    return eventsPool
-      .filter(event => event.categories.includes('food-deal'))
-      .sort((a, b) => {
-        // Sort by date and time
-        return a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime);
-      });
-  }, [eventsPool]);
-
-  // Filter events based on filters
-  const filteredEvents = useMemo(() => {
-    return eventsOnly.filter((event) => {
-      // Search filter
-      if (searchQuery) {
-        const query = searchQuery.toLowerCase();
-        const matchesSearch = 
-          event.title.toLowerCase().includes(query) ||
-          event.description.toLowerCase().includes(query) ||
-          event.venue.name.toLowerCase().includes(query);
-        if (!matchesSearch) return false;
-      }
-
-      // Category filter
-      if (selectedCategories.length > 0) {
-        const hasCategory = event.categories.some(cat => selectedCategories.includes(cat));
-        if (!hasCategory) return false;
-      }
-
-      // Date filter
-      if (dateFilterMode === 'single' && dateFilter) {
-        const eventDate = startOfDay(parseISO(event.date));
-        const filterDate = startOfDay(parseISO(dateFilter));
-        if (!isEqual(eventDate, filterDate)) return false;
-      } else if (dateFilterMode === 'range' && dateRangeStart && dateRangeEnd) {
-        const eventDate = startOfDay(parseISO(event.date));
-        const rangeStart = startOfDay(parseISO(dateRangeStart));
-        const rangeEnd = startOfDay(parseISO(dateRangeEnd));
-        if (!isWithinInterval(eventDate, { start: rangeStart, end: rangeEnd })) return false;
-      } else if (dateFilterMode === 'none') {
-        // When no date filter is selected, only show today, tomorrow, and day after tomorrow
-        const eventDate = startOfDay(parseISO(event.date));
-        const todayDate = startOfDay(today);
-        const tomorrowDate = startOfDay(addDays(today, 1));
-        const dayAfterTomorrowDate = startOfDay(addDays(today, 2));
-        if (!isEqual(eventDate, todayDate) && !isEqual(eventDate, tomorrowDate) && !isEqual(eventDate, dayAfterTomorrowDate)) {
-          return false;
-        }
-      }
-
-      // Free filter
-      if (freeOnly) {
-        if (!event.price || event.price.toLowerCase() !== 'free') return false;
-      }
-
-      // Price range filter
-      if (priceFilterEnabled && !freeOnly) {
-        if (event.price) {
-          const priceMatch = event.price.match(/\$?(\d+)/);
-          if (priceMatch) {
-            const eventPrice = parseInt(priceMatch[1], 10);
-            if (eventPrice > maxPrice) return false;
-          }
-        }
-      }
-
-      return true;
-    }).sort((a, b) => {
-      // Sort by promotion tier priority (higher first), then by date, then by time
-      const aPriority = getPromotionTierPriority(a.venue?.promotionTier);
-      const bPriority = getPromotionTierPriority(b.venue?.promotionTier);
-      if (bPriority !== aPriority) {
-        return bPriority - aPriority;
-      }
-      const dateCompare = a.date.localeCompare(b.date);
-      if (dateCompare !== 0) {
-        return dateCompare;
-      }
-      return a.startTime.localeCompare(b.startTime);
-    });
-  }, [eventsOnly, searchQuery, selectedCategories, dateFilterMode, dateFilter, dateRangeStart, dateRangeEnd, today, freeOnly, priceFilterEnabled, maxPrice]);
-
-  // Filter deals based on filters
-  const filteredDeals = useMemo(() => {
-    return dealsOnly.filter((event) => {
-      // Search filter
-      if (searchQuery) {
-        const query = searchQuery.toLowerCase();
-        const matchesSearch = 
-          event.title.toLowerCase().includes(query) ||
-          event.description.toLowerCase().includes(query) ||
-          event.venue.name.toLowerCase().includes(query);
-        if (!matchesSearch) return false;
-      }
-
-      // Food/Drink filter
-      if (selectedFoodDrinkFilter.length > 0) {
-        const hasSelectedCategory = selectedFoodDrinkFilter.some(filter => 
-          event.categories.includes(filter as EventCategory)
-        );
-        if (!hasSelectedCategory) return false;
-      }
-
-      // Date filter
-      if (dateFilterMode === 'single' && dateFilter) {
-        const eventDate = startOfDay(parseISO(event.date));
-        const filterDate = startOfDay(parseISO(dateFilter));
-        if (!isEqual(eventDate, filterDate)) return false;
-      } else if (dateFilterMode === 'range' && dateRangeStart && dateRangeEnd) {
-        const eventDate = startOfDay(parseISO(event.date));
-        const rangeStart = startOfDay(parseISO(dateRangeStart));
-        const rangeEnd = startOfDay(parseISO(dateRangeEnd));
-        if (!isWithinInterval(eventDate, { start: rangeStart, end: rangeEnd })) return false;
-      } else if (dateFilterMode === 'none') {
-        // When no date filter is selected, only show today, tomorrow, and day after tomorrow
-        const eventDate = startOfDay(parseISO(event.date));
-        const todayDate = startOfDay(today);
-        const tomorrowDate = startOfDay(addDays(today, 1));
-        const dayAfterTomorrowDate = startOfDay(addDays(today, 2));
-        if (!isEqual(eventDate, todayDate) && !isEqual(eventDate, tomorrowDate) && !isEqual(eventDate, dayAfterTomorrowDate)) {
-          return false;
-        }
-      }
-
-      // Free filter
-      if (freeOnly) {
-        if (!event.price || event.price.toLowerCase() !== 'free') return false;
-      }
-
-      // Price range filter
-      if (priceFilterEnabled && !freeOnly) {
-        if (event.price) {
-          const priceMatch = event.price.match(/\$?(\d+)/);
-          if (priceMatch) {
-            const eventPrice = parseInt(priceMatch[1], 10);
-            if (eventPrice > maxPrice) return false;
-          }
-        }
-      }
-
-      return true;
-    }).sort((a, b) => {
-      // Sort by promotion tier priority (higher first), then by date, then by time
-      const aPriority = getPromotionTierPriority(a.venue?.promotionTier);
-      const bPriority = getPromotionTierPriority(b.venue?.promotionTier);
-      if (bPriority !== aPriority) {
-        return bPriority - aPriority;
-      }
-      const dateCompare = a.date.localeCompare(b.date);
-      if (dateCompare !== 0) {
-        return dateCompare;
-      }
-      return a.startTime.localeCompare(b.startTime);
-    });
-  }, [dealsOnly, searchQuery, selectedFoodDrinkFilter, dateFilterMode, dateFilter, dateRangeStart, dateRangeEnd, today, freeOnly, priceFilterEnabled, maxPrice]);
-
-  // Group events by date
-  const eventsByDate = useMemo(() => {
-    const grouped: { [date: string]: typeof filteredEvents } = {};
-    
-    filteredEvents.forEach(event => {
-      const dateKey = event.date;
-      if (!grouped[dateKey]) {
-        grouped[dateKey] = [];
-      }
-      grouped[dateKey].push(event);
-    });
-
-    // Sort events within each date group by promotion tier, then time
-    Object.keys(grouped).forEach(dateKey => {
-      grouped[dateKey].sort((a, b) => {
-        const aPriority = getPromotionTierPriority(a.venue?.promotionTier);
-        const bPriority = getPromotionTierPriority(b.venue?.promotionTier);
-        if (bPriority !== aPriority) {
-          return bPriority - aPriority;
-        }
-        return a.startTime.localeCompare(b.startTime);
-      });
-    });
-
-    // Sort dates and return as array of [date, events] pairs
-    return Object.entries(grouped).sort(([a], [b]) => a.localeCompare(b));
-  }, [filteredEvents]);
-
-  // Group deals by date (for deals tab)
-  const dealsByDate = useMemo(() => {
-    const grouped: { [date: string]: typeof filteredDeals } = {};
-    
-    filteredDeals.forEach(deal => {
-      const dateKey = deal.date;
-      if (!grouped[dateKey]) {
-        grouped[dateKey] = [];
-      }
-      grouped[dateKey].push(deal);
-    });
-
-    // Sort deals within each date group by promotion tier, then time
-    Object.keys(grouped).forEach(dateKey => {
-      grouped[dateKey].sort((a, b) => {
-        const aPriority = getPromotionTierPriority(a.venue?.promotionTier);
-        const bPriority = getPromotionTierPriority(b.venue?.promotionTier);
-        if (bPriority !== aPriority) {
-          return bPriority - aPriority;
-        }
-        return a.startTime.localeCompare(b.startTime);
-      });
-    });
-
-    // Sort dates and return as array of [date, deals] pairs
-    return Object.entries(grouped).sort(([a], [b]) => a.localeCompare(b));
-  }, [filteredDeals]);
-
-  // Group deals by venue (for deals tab)
-  const dealsByVenue = useMemo(() => {
-    const grouped: { [venueName: string]: typeof filteredDeals } = {};
-    
-    filteredDeals.forEach(deal => {
-      const venueName = deal.venue.name;
-      if (!grouped[venueName]) {
-        grouped[venueName] = [];
-      }
-      grouped[venueName].push(deal);
-    });
-
-    // Sort venues alphabetically and return as array of [venue, deals] pairs
-    return Object.entries(grouped).sort(([a], [b]) => a.localeCompare(b));
-  }, [filteredDeals]);
-
-  // Get all unique dates for "All" tab (combining events and deals)
-  // Default to today, tomorrow, and the following day unless dateFilter is set
-  const allDates = useMemo(() => {
-    const today = new Date();
-    const tomorrow = addDays(today, 1);
-    const dayAfterTomorrow = addDays(today, 2);
-    
-    // If single date filter is set, use that date only
-    if (dateFilterMode === 'single' && dateFilter) {
-      return [dateFilter];
-    }
-    
-    // If date range filter is set, generate all dates in the range
-    if (dateFilterMode === 'range' && dateRangeStart && dateRangeEnd) {
-      const start = parseISO(dateRangeStart);
-      const end = parseISO(dateRangeEnd);
-      const dates: string[] = [];
-      let current = startOfDay(start);
-      const endDay = startOfDay(end);
-      while (current <= endDay) {
-        dates.push(format(current, 'yyyy-MM-dd'));
-        current = addDays(current, 1);
-      }
-      return dates;
-    }
-    
-    // Otherwise, default to today, tomorrow, and day after tomorrow
-    const defaultDates = [
-      format(today, 'yyyy-MM-dd'),
-      format(tomorrow, 'yyyy-MM-dd'),
-      format(dayAfterTomorrow, 'yyyy-MM-dd')
-    ];
-    
-    // Return these three dates (they will show events if they exist, empty state if not)
-    return defaultDates;
-  }, [dateFilterMode, dateFilter, dateRangeStart, dateRangeEnd]);
-
-  // Get button display text
-  const getDateButtonText = () => {
-    if (dateFilterMode === 'single' && dateFilter) {
-      return dateFilter;
-    } else if (dateFilterMode === 'range' && dateRangeStart && dateRangeEnd) {
-      return `${dateRangeStart} to ${dateRangeEnd}`;
-    }
-    return 'yyyy-mm-dd';
-  };
-
-  // Close dropdown when clicking outside
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (datePickerRef.current && !datePickerRef.current.contains(event.target as Node)) {
-        setShowDatePicker(false);
-      }
+    if (!showDateMenu) return;
+    const handle = (e: MouseEvent) => {
+      if (dateMenuRef.current && !dateMenuRef.current.contains(e.target as Node)) setShowDateMenu(false);
     };
+    document.addEventListener('mousedown', handle);
+    return () => document.removeEventListener('mousedown', handle);
+  }, [showDateMenu]);
 
-    if (showDatePicker) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
+  useEffect(() => {
+    setShowAllEvents(false);
+    setShowAllSpecials(false);
+  }, [activeTab, dateWindow, selected, searchQuery]);
+
+  const upcoming = getUpcomingEvents();
+
+  const pool = useMemo(() => {
+    if (pastRange === 'none') return upcoming;
+    const now = new Date();
+    const cutoff = pastRange === 'week' ? subDays(now, 7) : pastRange === 'month' ? subMonths(now, 1) : subMonths(now, 3);
+    return allEvents.filter((e) => parseISO(e.date) >= startOfDay(cutoff));
+  }, [allEvents, upcoming, pastRange]);
+
+  const inWindow = (event: Event) => {
+    switch (dateWindow.kind) {
+      case 'day':
+        return event.date === dateWindow.date;
+      case 'week':
+        return isWithinInterval(startOfDay(parseISO(event.date)), {
+          start: startOfDay(new Date()),
+          end: startOfDay(addDays(new Date(), 6)),
+        });
+      case 'range':
+        return isWithinInterval(startOfDay(parseISO(event.date)), {
+          start: startOfDay(parseISO(dateWindow.start)),
+          end: startOfDay(parseISO(dateWindow.end)),
+        });
+      default:
+        return true;
     }
-  }, [showDatePicker]);
+  };
 
-  const clearFilters = () => {
+  const sortByTime = (a: Event, b: Event) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime);
+
+  const filteredEvents = useMemo(() => {
+    const list = pool.filter((event) => {
+      if (event.categories.includes('food-deal')) return false;
+      if (!matchesQuery(event, searchQuery)) return false;
+      if (!inWindow(event)) return false;
+      if (selected.length > 0) {
+        const hit = selected.some((s) =>
+          s === DOWNTOWN ? isDowntown(event.venue?.neighborhood) : event.categories.includes(s)
+        );
+        if (!hit) return false;
+      }
+      if (freeOnly && formatPrice(event.price) && event.price?.toLowerCase() !== 'free') return false;
+      return true;
+    });
+    if (sortMode === 'popular') {
+      return list.sort(
+        (a, b) =>
+          (b.likeCount ?? getLikeCount(b.id)) - (a.likeCount ?? getLikeCount(a.id)) ||
+          getPromotionTierPriority(b.venue?.promotionTier) - getPromotionTierPriority(a.venue?.promotionTier) ||
+          sortByTime(a, b)
+      );
+    }
+    if (sortMode === 'free') {
+      const isFree = (e: Event) => (!e.price || e.price.toLowerCase() === 'free' ? 0 : 1);
+      return list.sort((a, b) => isFree(a) - isFree(b) || sortByTime(a, b));
+    }
+    return list.sort(sortByTime);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pool, searchQuery, dateWindow, selected, freeOnly, sortMode]);
+
+  const filteredDeals = useMemo(() => {
+    return pool
+      .filter((event) => {
+        if (!event.categories.includes('food-deal')) return false;
+        if (!matchesQuery(event, searchQuery)) return false;
+        if (!inWindow(event)) return false;
+        return true;
+      })
+      .sort(
+        (a, b) =>
+          a.date.localeCompare(b.date) ||
+          a.startTime.localeCompare(b.startTime) ||
+          getPromotionTierPriority(b.venue?.promotionTier) - getPromotionTierPriority(a.venue?.promotionTier)
+      );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pool, searchQuery, dateWindow]);
+
+  const applySpecialFilter = (list: Event[], f: SpecialFilter) => {
+    switch (f) {
+      case 'food':
+        return list.filter((e) => specialKind(e) !== 'drink');
+      case 'drink':
+        return list.filter((e) => e.categories.includes('drink'));
+      case 'now':
+        return list.filter(isOnNow);
+      case 'happy':
+        return list.filter((e) => specialBand(e) === 'Happy hour');
+      default:
+        return list;
+    }
+  };
+
+  const handleSave = (eventId: string) => {
+    if (!user) {
+      router.push('/login');
+      return;
+    }
+    const wasSaved = isLiked(eventId);
+    toggleLike(eventId);
+    if (!wasSaved) setShowToast(true);
+  };
+
+  const toggleRail = (id: RailFilter) =>
+    setSelected((prev) => (prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]));
+
+  const clearAll = () => {
     setSearchQuery('');
-    setSelectedCategories([]);
-    setSelectedFoodDrinkFilter([]);
-    setDateFilterMode('none');
-    setDateFilter('');
-    setDateRangeStart('');
-    setDateRangeEnd('');
-    setShowDatePicker(false);
+    setSelected([]);
     setFreeOnly(false);
-    setMaxPrice(100);
-    setPriceFilterEnabled(false);
-    setPastEventsRange('none');
+    setPastRange('none');
+    setSpecialFilter('all');
+    setDateWindow({ kind: 'day', date: todayStr });
   };
 
-  const hasActiveFilters = searchQuery || selectedCategories.length > 0 || selectedFoodDrinkFilter.length > 0 || dateFilterMode !== 'none' || freeOnly || priceFilterEnabled || pastEventsRange !== 'none';
+  const singleDay = dateWindow.kind === 'day';
+  const windowNoun =
+    dateWindow.kind === 'day'
+      ? isToday(parseISO(dateWindow.date))
+        ? 'today'
+        : isTomorrow(parseISO(dateWindow.date))
+        ? 'tomorrow'
+        : `on ${format(parseISO(dateWindow.date), 'EEE, MMM d')}`
+      : dateWindow.kind === 'week'
+      ? 'this week'
+      : dateWindow.kind === 'range'
+      ? `${format(parseISO(dateWindow.start), 'MMM d')} – ${format(parseISO(dateWindow.end), 'MMM d')}`
+      : 'coming up';
 
-  const toggleFoodDrinkFilter = (category: 'food' | 'drink') => {
-    setSelectedFoodDrinkFilter(prev => 
-      prev.includes(category)
-        ? prev.filter(c => c !== category)
-        : [...prev, category]
-    );
+  const stripDays = [0, 1, 2, 3].map((offset) => format(addDays(new Date(), offset), 'yyyy-MM-dd'));
+
+  // The strip shows quick picks; the dropdown label only reflects custom dates/ranges
+  const dateMenuLabel =
+    dateWindow.kind === 'range'
+      ? `${format(parseISO(dateWindow.start), 'MMM d')} – ${format(parseISO(dateWindow.end), 'MMM d')}`
+      : dateWindow.kind === 'day' && !stripDays.includes(dateWindow.date)
+      ? format(parseISO(dateWindow.date), 'EEE, MMM d')
+      : 'Any date';
+  const stripLabel = (dateStr: string, i: number) =>
+    i === 0 ? `Today · ${format(parseISO(dateStr), 'EEE d')}` : i === 1 ? 'Tomorrow' : format(parseISO(dateStr), 'EEE');
+
+  const moreFilters = (
+    <div className="flex flex-col gap-4">
+      <label className="flex items-center justify-between gap-3 text-[13px] font-medium text-navy">
+        Free only
+        <button type="button" className="switch" data-on={freeOnly} onClick={() => setFreeOnly(!freeOnly)}>
+          <span />
+        </button>
+      </label>
+      <div>
+        <p className="mb-2 text-[13px] font-medium text-navy">Include past events</p>
+        <div className="flex flex-wrap gap-1.5">
+          {(
+            [
+              ['none', 'No'],
+              ['week', 'Past week'],
+              ['month', 'Past month'],
+              ['3months', '3 months'],
+            ] as [PastRange, string][]
+          ).map(([id, label]) => (
+            <button key={id} className="chip h-8 px-3" data-active={pastRange === id} onClick={() => setPastRange(id)}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
+  if (isLoading) return <EventsLoading />;
+
+  const noResults =
+    (activeTab === 'all' && filteredEvents.length === 0 && filteredDeals.length === 0) ||
+    (activeTab === 'events' && filteredEvents.length === 0) ||
+    (activeTab === 'deals' && applySpecialFilter(filteredDeals, specialFilter).length === 0);
+
+  const EVENTS_PREVIEW = 14;
+  const SPECIALS_PREVIEW = 8;
+
+  const renderEventGroups = (list: Event[], row: (e: Event) => ReactNode) => {
+    if (singleDay) {
+      return groupBy(list, bandFor, BAND_ORDER).map(([band, items]) => (
+        <div key={band}>
+          <Band label={band} />
+          <div className="border-t border-line">{items.map(row)}</div>
+        </div>
+      ));
+    }
+    return groupBy(list, (e) => e.date).map(([date, items]) => (
+      <div key={date}>
+        <Band label={dayLabel(date)} />
+        <div className="border-t border-line">{items.map(row)}</div>
+      </div>
+    ));
   };
 
-  const toggleCategory = (category: EventCategory) => {
-    setSelectedCategories(prev => 
-      prev.includes(category)
-        ? prev.filter(c => c !== category)
-        : [...prev, category]
-    );
-  };
-
-  const pastEventsLabels: Record<PastEventsRange, string> = {
-    'none': 'Include Past Events',
-    'week': 'Past Week',
-    'month': 'Past Month',
-    '3months': 'Past 3 Months',
-    '6months': 'Past 6 Months',
-  };
-
-  if (isLoading) {
-    return <EventsLoading />;
-  }
+  const emptyState = (
+    <div className="rounded-[22px] bg-sky-soft px-6 py-14 text-center">
+      <div className="mx-auto mb-5 flex h-[52px] w-[52px] items-center justify-center rounded-full bg-white text-navy">
+        <Search size={20} />
+      </div>
+      <p className="text-[24px] font-bold text-navy">
+        {searchQuery ? <>No results for &ldquo;{searchQuery}&rdquo;</> : <>Nothing listed {windowNoun}</>}
+      </p>
+      <p className="mx-auto mt-3 max-w-[420px] text-[14px] text-ink-muted">
+        We couldn&rsquo;t find any {activeTab === 'deals' ? 'food & drink specials' : 'events'} matching that{' '}
+        {windowNoun}. Try loosening things up a little:
+      </p>
+      <div className="mt-6 flex flex-wrap justify-center gap-2.5">
+        <button onClick={clearAll} className="btn-outline">
+          <X size={14} /> Clear search &amp; filters
+        </button>
+        {dateWindow.kind !== 'week' && (
+          <button onClick={() => setDateWindow({ kind: 'week' })} className="btn-sun">
+            <Calendar size={14} /> Try &ldquo;This week&rdquo;
+          </button>
+        )}
+      </div>
+      <p className="mt-8 eyebrow-sm">Popular categories</p>
+      <div className="mt-3 flex flex-wrap justify-center gap-2">
+        {popularCategories.map((p) => (
+          <button
+            key={p.label}
+            className="chip"
+            onClick={() => {
+              setSearchQuery('');
+              if (p.tab) {
+                setActiveTab(p.tab);
+              } else if (p.category) {
+                setSelected([p.category]);
+                if (activeTab === 'deals') setActiveTab('events');
+              }
+            }}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+      <p className="mt-6 text-[12px] text-ink-muted">
+        Tip: search by venue too, like <span className="font-bold text-navy">&ldquo;Merchant Tap House&rdquo;</span>
+      </p>
+    </div>
+  );
 
   return (
     <>
-      {/* Tabs + Search/Filter Row */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8 lg:pl-60">
-        {/* Left - Tab Buttons (aligned with main content area) */}
-        <div className="flex gap-3">
-          <button
-            onClick={() => setActiveTab('all')}
-            className={`px-6 py-3 rounded-xl font-semibold text-base transition-all ${
-              activeTab === 'all'
-                ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/25 scale-105'
-                : 'bg-card text-foreground border-2 border-border hover:border-primary/50 hover:shadow-md'
-            }`}
-          >
-            All
-          </button>
-          <button
-            onClick={() => setActiveTab('events')}
-            className={`px-6 py-3 rounded-xl font-semibold text-base transition-all ${
-              activeTab === 'events'
-                ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/25 scale-105'
-                : 'bg-card text-foreground border-2 border-border hover:border-primary/50 hover:shadow-md'
-            }`}
-          >
-            Events
-          </button>
-          <button
-            onClick={() => setActiveTab('deals')}
-            className={`px-6 py-3 rounded-xl font-semibold text-base transition-all ${
-              activeTab === 'deals'
-                ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/25 scale-105'
-                : 'bg-card text-foreground border-2 border-border hover:border-primary/50 hover:shadow-md'
-            }`}
-          >
-            Food & Drink Specials
-          </button>
-        </div>
-        
-        {/* Right - Search and Calendar Filter */}
-        <div className="flex flex-col sm:flex-row gap-3">
-            {/* Search */}
-            <div className="relative w-full sm:w-56">
-          <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-primary drop-shadow-sm" />
-          <input
-            type="text"
-                placeholder="Search events..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-11 pr-4 py-2.5 bg-card border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary text-sm"
-          />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery('')}
-              className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-            >
-              <X size={16} />
+      {/* Toolbar */}
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="segmented self-start">
+          {(
+            [
+              ['all', 'All'],
+              ['events', 'Events'],
+              ['deals', 'Food & Drink'],
+            ] as [TabType, string][]
+          ).map(([id, label]) => (
+            <button key={id} className="segmented-item h-10 px-5" data-active={activeTab === id} onClick={() => setActiveTab(id)}>
+              {label}
             </button>
-          )}
+          ))}
         </div>
-
-            {/* Calendar Filter */}
-            <div className="relative" ref={datePickerRef}>
+        <div className="flex flex-col gap-2.5 sm:flex-row">
+          <div className="relative sm:w-[340px]">
+            <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-navy" />
+            <input
+              type="text"
+              placeholder={activeTab === 'deals' ? 'Search specials...' : 'Search events...'}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="h-[46px] w-full rounded-full border border-line bg-white pl-11 pr-10 text-[15px] text-navy placeholder:text-ink-muted outline-none focus:border-navy"
+            />
+            {searchQuery && (
               <button
-                onClick={() => {
-                  const wasOpen = showDatePicker;
-                  setShowDatePicker(!wasOpen);
-                  if (!wasOpen) {
-                    // Initialize temp mode based on current filter mode
-                    if (dateFilterMode === 'single' || dateFilterMode === 'range') {
-                      setTempDateMode(dateFilterMode);
-                    } else {
-                      setTempDateMode('single');
-                    }
-                  }
-                }}
-                className={`px-4 py-2.5 bg-card border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary text-sm flex items-center gap-2 min-w-[140px] justify-center ${
-                  dateFilterMode !== 'none' ? 'text-primary font-medium' : 'text-muted-foreground'
-                }`}
+                onClick={() => setSearchQuery('')}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-ink-muted hover:text-navy"
+                aria-label="Clear search"
               >
-                <Calendar size={16} className={dateFilterMode !== 'none' ? 'text-primary' : 'text-muted-foreground'} />
-                <span>{getDateButtonText()}</span>
+                <X size={16} />
               </button>
-              
-              {/* Date Picker Dropdown */}
-              {showDatePicker && (
-                <div className="absolute top-full mt-2 right-0 bg-card border border-border rounded-xl shadow-lg z-50 p-4 min-w-[280px]">
-                  {/* Mode Toggle */}
-                  <div className="flex gap-2 mb-4">
-                    <button
-                      onClick={() => setTempDateMode('single')}
-                      className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-                        tempDateMode === 'single'
-                          ? 'bg-primary text-primary-foreground'
-                          : 'bg-muted text-muted-foreground hover:bg-muted/80'
-                      }`}
-                    >
-                      Single Date
-                    </button>
-                    <button
-                      onClick={() => setTempDateMode('range')}
-                      className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-                        tempDateMode === 'range'
-                          ? 'bg-primary text-primary-foreground'
-                          : 'bg-muted text-muted-foreground hover:bg-muted/80'
-                      }`}
-                    >
-                      Date Range
-                    </button>
+            )}
+          </div>
+          <div className="relative" ref={dateMenuRef}>
+            <button
+              onClick={() => setShowDateMenu(!showDateMenu)}
+              className="flex h-[46px] w-full items-center justify-center gap-2 rounded-full border border-line bg-white px-5 text-[14px] font-medium text-navy hover:border-navy"
+            >
+              <Calendar size={18} className="text-link" />
+              {dateMenuLabel}
+              <ChevronDown size={16} />
+            </button>
+            {showDateMenu && (
+              <div className="absolute right-0 top-full z-40 mt-2 w-[300px] rounded-[18px] border border-line bg-white p-4 shadow-[0_18px_40px_-12px_rgba(27,42,65,0.25)]">
+                <button
+                  onClick={() => {
+                    setDateWindow({ kind: 'any' });
+                    setShowDateMenu(false);
+                  }}
+                  className="chip mb-3 w-full justify-center"
+                  data-active={dateWindow.kind === 'any'}
+                >
+                  Any upcoming date
+                </button>
+                <div className="segmented mb-3 w-full">
+                  <button className="segmented-item flex-1 justify-center" data-active={pickMode === 'single'} onClick={() => setPickMode('single')}>
+                    Single date
+                  </button>
+                  <button className="segmented-item flex-1 justify-center" data-active={pickMode === 'range'} onClick={() => setPickMode('range')}>
+                    Date range
+                  </button>
+                </div>
+                {pickMode === 'single' ? (
+                  <DatePicker value={pickDate} onChange={setPickDate} placeholder="Select date" className="text-sm" />
+                ) : (
+                  <div className="space-y-2">
+                    <DatePicker value={pickStart} onChange={setPickStart} placeholder="Start date" className="text-sm" />
+                    <DatePicker value={pickEnd} onChange={setPickEnd} placeholder="End date" className="text-sm" />
                   </div>
-                  
-                  {/* Date Input(s) */}
-                  {tempDateMode === 'single' ? (
-                    <div className="mb-4">
-                      <DatePicker
-                        value={dateFilter}
-                        onChange={(value) => setDateFilter(value)}
-                        placeholder="Select date"
-                        className="text-sm"
-                      />
-                    </div>
+                )}
+                <button
+                  className="btn-navy btn-sm mt-3 w-full"
+                  onClick={() => {
+                    if (pickMode === 'single' && pickDate) setDateWindow({ kind: 'day', date: pickDate });
+                    if (pickMode === 'range' && pickStart && pickEnd)
+                      setDateWindow({ kind: 'range', start: pickStart <= pickEnd ? pickStart : pickEnd, end: pickStart <= pickEnd ? pickEnd : pickStart });
+                    setShowDateMenu(false);
+                  }}
+                >
+                  Apply
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="h-[18px]" />
+
+      <div className={`flex flex-col gap-6 lg:flex-row ${activeTab === 'deals' ? '' : 'lg:gap-12'}`}>
+        {activeTab !== 'deals' && (
+          <CategoryRail selected={selected} onToggle={toggleRail} onClear={() => setSelected([])} moreFilters={moreFilters} />
+        )}
+
+        <div className="min-w-0 flex-1">
+          {/* Date strip */}
+          <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+            {stripDays.map((d, i) => (
+              <button
+                key={d}
+                className="chip h-10"
+                data-active={dateWindow.kind === 'day' && dateWindow.date === d}
+                onClick={() => setDateWindow({ kind: 'day', date: d })}
+              >
+                {stripLabel(d, i)}
+              </button>
+            ))}
+            <button className="chip h-10" data-active={dateWindow.kind === 'week'} onClick={() => setDateWindow({ kind: 'week' })}>
+              This week
+            </button>
+            <button
+              className="chip h-10"
+              data-active={dateWindow.kind === 'range' || (dateWindow.kind === 'day' && !stripDays.includes(dateWindow.date))}
+              onClick={() => {
+                setPickMode('single');
+                setShowDateMenu(true);
+              }}
+            >
+              <Calendar size={14} className="text-link" />
+              Pick a date
+            </button>
+          </div>
+
+          <div className="mt-7">
+            {noResults ? (
+              emptyState
+            ) : activeTab === 'all' ? (
+              <div className="flex flex-col gap-10 xl:flex-row xl:gap-14">
+                {/* Events column */}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline justify-between">
+                    <h2 className="text-[24px] font-bold text-navy">Events {windowNoun}</h2>
+                    <span className="text-[13px] text-ink-muted">
+                      {filteredEvents.length} event{filteredEvents.length === 1 ? '' : 's'}
+                    </span>
+                  </div>
+                  {filteredEvents.length === 0 ? (
+                    <p className="mt-6 text-ink-muted">No events {windowNoun} with these filters.</p>
                   ) : (
-                    <div className="space-y-3 mb-4">
-                      <DatePicker
-                        value={dateRangeStart}
-                        onChange={(value) => setDateRangeStart(value)}
-                        placeholder="Start date"
-                        className="text-sm"
-                      />
-                      <DatePicker
-                        value={dateRangeEnd}
-                        onChange={(value) => setDateRangeEnd(value)}
-                        placeholder="End date"
-                        className="text-sm"
-                      />
-                    </div>
+                    renderEventGroups(
+                      showAllEvents ? filteredEvents : filteredEvents.slice(0, EVENTS_PREVIEW),
+                      (e) => <CompactEventRow key={e.id} event={e} />
+                    )
                   )}
-                  
-                  {/* Actions */}
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => {
-                        setDateFilterMode(tempDateMode);
-                        if (tempDateMode === 'single') {
-                          // Use the current dateFilter value from the input
-                          if (!dateFilter) {
-                            setDateFilter(format(new Date(), 'yyyy-MM-dd'));
-                          }
-                        } else if (tempDateMode === 'range') {
-                          // Use the current dateRangeStart and dateRangeEnd values from the inputs
-                          if (!dateRangeStart) setDateRangeStart(format(new Date(), 'yyyy-MM-dd'));
-                          if (!dateRangeEnd) setDateRangeEnd(format(addDays(new Date(), 7), 'yyyy-MM-dd'));
-                        }
-                        setShowDatePicker(false);
-                      }}
-                      className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
-                    >
-                      Apply
+                  {filteredEvents.length > EVENTS_PREVIEW && !showAllEvents && (
+                    <button onClick={() => setShowAllEvents(true)} className="link-arrow mt-5">
+                      Show all {filteredEvents.length} →
                     </button>
-                    <button
-                      onClick={() => {
-                        setDateFilterMode('none');
-                        setDateFilter('');
-                        setDateRangeStart('');
-                        setDateRangeEnd('');
-                        setShowDatePicker(false);
-                      }}
-                      className="px-4 py-2 bg-muted text-muted-foreground rounded-lg text-sm font-medium hover:bg-muted/80 transition-colors"
-                    >
-                      Clear
-                    </button>
+                  )}
+                </div>
+
+                {/* Specials side panel */}
+                <div className="self-start rounded-[22px] bg-sky-soft p-7 xl:w-[360px] xl:shrink-0">
+                  <div className="flex items-baseline justify-between">
+                    <h2 className="text-[24px] font-bold text-navy">Specials {singleDay ? windowNoun : ''}</h2>
+                    <span className="text-[13px] text-ink-muted">{applySpecialFilter(filteredDeals, sideSpecialFilter).length}</span>
                   </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-      {/* "All" Tab - Categories sidebar + Content grouped by date */}
-      {activeTab === 'all' && (
-        <div className="flex flex-col lg:flex-row gap-8">
-          {/* Left Sidebar - Categories (same size as Events tab) */}
-          <aside className="lg:w-52 flex-shrink-0">
-            <div className="lg:sticky lg:top-24 space-y-6">
-              {/* Categories Section */}
-              <div>
-                <h3 className="font-medium text-foreground mb-3">Categories</h3>
-                <div className="space-y-1">
-                  {[...browseCategories]
-                    .map(category => ({
-                      category,
-                      count: eventsOnly.filter(e => e.categories.includes(category)).length
-                    }))
-                    .sort((a, b) => b.count - a.count)
-                    .map(({ category, count }) => {
-                      const isSelected = selectedCategories.includes(category);
-                      return (
-        <button
-                          key={category}
-                          onClick={() => toggleCategory(category)}
-                          className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-sm transition-all ${
-                            isSelected
-                              ? categoryColorsActive[category]
-                              : categoryColorsMuted[category]
-                          }`}
-                        >
-                          <span className="flex items-center gap-2">
-                            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${isSelected ? 'bg-white' : categoryColors[category]}`} />
-                            <span className="truncate">{categoryLabels[category]}</span>
-                          </span>
-                          <span className={`text-xs flex-shrink-0 ${isSelected ? 'opacity-70' : 'opacity-50'}`}>
-                            {count}
-            </span>
-        </button>
-                      );
-                    })}
-                </div>
-      </div>
-
-              {/* Filters Section */}
-              <div className="space-y-4">
-                <h3 className="font-medium text-foreground">Filters</h3>
-                
-                {/* Food/Drink Filter */}
-                <div className="space-y-2">
-                  <p className="text-sm font-medium text-foreground">Type</p>
-                  <div className="flex flex-wrap gap-2">
-                    {(['food', 'drink'] as const).map((type) => {
-                      const isSelected = selectedFoodDrinkFilter.includes(type);
-                      return (
-                        <button
-                          key={type}
-                          onClick={() => toggleFoodDrinkFilter(type)}
-                          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all capitalize ${
-                            isSelected
-                              ? type === 'food' 
-                                ? 'bg-orange-500 text-white'
-                                : 'bg-blue-500 text-white'
-                              : 'bg-card text-foreground hover:bg-muted border border-border'
-                          }`}
-                        >
-                          {type}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Free Only */}
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={freeOnly}
-                    onChange={(e) => {
-                      setFreeOnly(e.target.checked);
-                      if (e.target.checked) setPriceFilterEnabled(false);
-                    }}
-                    className="w-4 h-4 text-primary rounded focus:ring-primary"
+                  <TextTabs
+                    value={sideSpecialFilter}
+                    onChange={setSideSpecialFilter}
+                    options={[
+                      { id: 'all', label: 'All' },
+                      { id: 'food', label: 'Food' },
+                      { id: 'drink', label: 'Drinks' },
+                      { id: 'now', label: 'On now' },
+                    ]}
                   />
-                  <span className="text-sm text-foreground">Free only</span>
-                </label>
-
-                {/* Clear Filters */}
-                {hasActiveFilters && (
-                  <button
-                    onClick={clearFilters}
-                    className="w-full px-4 py-2 text-sm text-primary border border-primary rounded-lg hover:bg-primary/5 transition-colors"
-                  >
-                    Clear All Filters
-                  </button>
-                )}
-              </div>
-            </div>
-          </aside>
-
-          {/* Main Content - Events and Specials grouped by date */}
-          <div className="flex-1">
-            {allDates.length > 0 ? (
-              <div className="space-y-10">
-                {allDates.map((dateStr, index) => {
-                  const date = parseISO(dateStr);
-                  const headingLabel = isToday(date) 
-                    ? 'Happening Today' 
-                    : isTomorrow(date) 
-                      ? 'Happening Tomorrow' 
-                      : `Happening ${format(date, 'EEEE')}`;
-                  const dateDisplay = format(date, 'EEEE, MMMM d');
-                  const holiday = getHoliday(date);
-                  
-                  const eventsForDate = filteredEvents.filter(e => e.date === dateStr);
-                  const dealsForDate = filteredDeals.filter(d => d.date === dateStr);
-                  
-                  return (
-                    <div key={dateStr}>
-                      {/* Date Section Header */}
-                      <div className="mb-6 pb-2 border-b border-border">
-                        <p className="text-primary font-medium text-base uppercase tracking-wider">
-                          {dateDisplay}
-                          {holiday && (
-                            <span className="ml-2 normal-case tracking-normal">• {holiday}</span>
-                          )}
-                        </p>
-                        <h3 className="font-display text-2xl text-foreground">
-                          {headingLabel}
-                        </h3>
-                      </div>
-                      
-                      {/* Two columns: Events and Food & Drink Specials side by side */}
-                      <div className="flex flex-col lg:flex-row gap-6">
-                        {/* Events Column */}
-                        <div className="flex-1 min-w-0">
-                          <h4 className="font-display text-lg text-foreground mb-3 flex items-center gap-2">
-                            <Calendar size={18} className="text-primary" />
-                            Events
-                            <span className="text-sm font-normal text-muted-foreground">({eventsForDate.length})</span>
-                          </h4>
-                          {eventsForDate.length > 0 ? (
-                            <div className="grid grid-cols-2 gap-4">
-                              {eventsForDate.map((event) => (
-                                <EventCard key={event.id} event={event} onLike={() => setShowToast(true)} />
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="text-center py-6 bg-muted rounded-xl">
-                              <Calendar size={24} className="mx-auto text-muted-foreground mb-2" />
-                              <p className="text-muted-foreground text-sm">No events</p>
-                            </div>
-                          )}
-                        </div>
-                        
-                        {/* Food & Drink Specials Column */}
-                        <div className="lg:w-80 flex-shrink-0">
-                          <h4 className="font-display text-lg text-foreground mb-3 flex items-center gap-2">
-                            <Utensils size={18} className="text-primary" />
-                            Food & Drink Specials
-                            <span className="text-sm font-normal text-muted-foreground">({dealsForDate.length})</span>
-                          </h4>
-                          {dealsForDate.length > 0 ? (
-            <div className="space-y-3">
-                              {dealsForDate.map((deal) => {
-                                const liked = isLiked(deal.id);
-                                const likeCount = getLikeCount(deal.id);
-                                const handleLikeClick = (e: React.MouseEvent) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  if (!user) {
-                                    router.push('/login');
-                                    return;
-                                  }
-                                  const wasLiked = liked;
-                                  toggleLike(deal.id);
-                                  // Show toast when liking (not unliking)
-                                  if (!wasLiked) {
-                                    setShowToast(true);
-                                  }
-                                };
-                                return (
-                                  <div
-                                    key={deal.id}
-                                    className="group relative flex items-center gap-3 p-3 rounded-xl bg-card border border-border hover:border-primary/50 transition-all hover:shadow-md"
-                                  >
-                                    <Link
-                                      href={`/events/${deal.id}`}
-                                      className="flex items-center gap-3 flex-1 min-w-0"
-                                    >
-                                      <div className="w-14 h-14 rounded-lg overflow-hidden bg-muted flex-shrink-0">
-                                        <div className="w-full h-full bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center">
-                                          <Utensils size={18} className="text-primary" />
-                                        </div>
-                                      </div>
-                                      <div className="flex-1 min-w-0">
-                                        <h5 className="font-medium text-foreground group-hover:text-primary transition-colors line-clamp-1 text-base">
-                                          {deal.title}
-                                        </h5>
-                                        <p className="text-muted-foreground text-sm flex items-center gap-1 mt-0.5">
-                                          <MapPin size={12} />
-                                          {deal.venue.name}
-                                        </p>
-                                        {deal.price && (
-                                          <p className="text-primary font-medium text-sm mt-1">
-                                            {formatPrice(deal.price)}
-                                          </p>
-                                        )}
-                                        {!(deal.isAllDay || deal.startTime === '00:00') && (
-                                          <p className="text-muted-foreground text-xs mt-0.5 flex items-center gap-1">
-                                            <Clock size={12} />
-                                            {format(parseISO(`2000-01-01T${deal.startTime}`), 'h:mm a')}
-                                            {deal.endTime ? ` – ${format(parseISO(`2000-01-01T${deal.endTime}`), 'h:mm a')}` : ''}
-                                          </p>
-                                        )}
-                                      </div>
-                                    </Link>
-                                    <button
-                                      onClick={handleLikeClick}
-                                      className={`flex items-center gap-1 p-2 rounded-full transition-all flex-shrink-0 ${
-                                        liked 
-                                          ? 'text-red-500' 
-                                          : 'text-muted-foreground hover:text-red-500'
-                                      }`}
-                                      title={user ? (liked ? 'Unlike' : 'Like') : 'Sign in to like'}
-                                    >
-                                      <Heart 
-                                        size={18} 
-                                        className={liked ? 'fill-current' : ''} 
-                                      />
-                                      {likeCount > 0 && (
-                                        <span className="text-sm font-medium">
-                                          {likeCount}
-                                        </span>
-                                      )}
-                                    </button>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          ) : (
-                            <div className="text-center py-6 bg-muted rounded-xl">
-                              <Utensils size={24} className="mx-auto text-muted-foreground mb-2" />
-                              <p className="text-muted-foreground text-sm">No specials</p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="text-center py-16 bg-muted rounded-2xl">
-                <Search size={48} className="mx-auto text-muted-foreground mb-4" />
-                <h3 className="font-display text-xl text-foreground mb-2">
-                  Nothing Found
-                </h3>
-                <p className="text-muted-foreground mb-4">
-                  Try adjusting your filters or search terms.
-                </p>
-                <button
-                  onClick={clearFilters}
-                  className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium"
-                >
-                  Clear All Filters
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Events Tab */}
-      {activeTab === 'events' && (
-        <div className="flex flex-col lg:flex-row gap-8">
-          {/* Left Sidebar */}
-          <aside className="lg:w-52 flex-shrink-0">
-            <div className="lg:sticky lg:top-24 space-y-6">
-              {/* Categories Section */}
-              <div>
-                <h3 className="font-medium text-foreground mb-3">Categories</h3>
-                <div className="space-y-1">
-                  {[...browseCategories]
-                    .map(category => ({
-                      category,
-                      count: eventsOnly.filter(e => e.categories.includes(category)).length
-                    }))
-                    .sort((a, b) => b.count - a.count)
-                    .map(({ category, count }) => {
-                      const isSelected = selectedCategories.includes(category);
-                      return (
-                        <button
-                          key={category}
-                          onClick={() => toggleCategory(category)}
-                          className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-sm transition-all ${
-                            isSelected
-                              ? categoryColorsActive[category]
-                              : categoryColorsMuted[category]
-                          }`}
-                        >
-                          <span className="flex items-center gap-2">
-                            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${isSelected ? 'bg-white' : categoryColors[category]}`} />
-                            <span className="truncate">{categoryLabels[category]}</span>
-                          </span>
-                          <span className={`text-xs flex-shrink-0 ${isSelected ? 'opacity-70' : 'opacity-50'}`}>
-                            {count}
-                          </span>
-                        </button>
-                      );
-                    })}
-                </div>
-              </div>
-
-              {/* Filters Section */}
-              <div className="space-y-4">
-              <h3 className="font-medium text-foreground">Filters</h3>
-                
-                {/* Free Only */}
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={freeOnly}
-                    onChange={(e) => {
-                      setFreeOnly(e.target.checked);
-                      if (e.target.checked) setPriceFilterEnabled(false);
-                    }}
-                  className="w-4 h-4 text-primary rounded focus:ring-primary"
-                />
-                  <span className="text-sm text-foreground">Free only</span>
-              </label>
-
-                {/* Price Range Slider */}
-                {!freeOnly && (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                          checked={priceFilterEnabled}
-                          onChange={(e) => setPriceFilterEnabled(e.target.checked)}
-                  className="w-4 h-4 text-primary rounded focus:ring-primary"
-                />
-                        <span className="text-sm text-foreground">Max price</span>
-              </label>
-                      {priceFilterEnabled && (
-                        <span className="text-sm font-medium text-primary">${maxPrice}</span>
-                      )}
-                    </div>
-                    {priceFilterEnabled && (
-                      <input
-                        type="range"
-                        min="0"
-                        max="100"
-                        step="5"
-                        value={maxPrice}
-                        onChange={(e) => setMaxPrice(parseInt(e.target.value, 10))}
-                        className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
-                      />
-                    )}
-            </div>
-                )}
-
-                {/* Past Events Checkbox + Dropdown */}
-                <div className="space-y-2">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={pastEventsRange !== 'none'}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setPastEventsRange('week');
-                          setShowPastDropdown(true);
-                        } else {
-                          setPastEventsRange('none');
-                          setShowPastDropdown(false);
-                        }
-                      }}
-                      className="w-4 h-4 text-primary rounded focus:ring-primary"
-                    />
-                    <span className="text-sm text-foreground">Include Past Events</span>
-                  </label>
-                  
-                  {pastEventsRange !== 'none' && (
-                    <div className="relative ml-6">
-                      <button
-                        onClick={() => setShowPastDropdown(!showPastDropdown)}
-                        className="w-full flex items-center justify-between px-3 py-2 bg-primary/10 text-primary rounded-lg text-sm font-medium"
-                      >
-                        {pastEventsLabels[pastEventsRange]}
-                        <ChevronDown size={14} className={`transition-transform ${showPastDropdown ? 'rotate-180' : ''}`} />
-                      </button>
-                      
-                      {showPastDropdown && (
-                        <>
-                          <div className="fixed inset-0 z-10" onClick={() => setShowPastDropdown(false)} />
-                          <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-lg shadow-lg z-20 overflow-hidden">
-                            {(['week', 'month', '3months', '6months'] as PastEventsRange[]).map((range) => (
-                    <button
-                                key={range}
-                                onClick={() => {
-                                  setPastEventsRange(range);
-                                  setShowPastDropdown(false);
-                                }}
-                                className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${
-                                  pastEventsRange === range ? 'bg-primary/10 text-primary' : 'text-foreground'
-                                }`}
-                              >
-                                {pastEventsLabels[range]}
-                    </button>
-                  ))}
-                </div>
-                        </>
-                      )}
-              </div>
-            )}
-                </div>
-
-                {/* Clear Filters */}
-            {hasActiveFilters && (
-              <button
-                onClick={clearFilters}
-                className="w-full px-4 py-2 text-sm text-primary border border-primary rounded-lg hover:bg-primary/5 transition-colors"
-              >
-                Clear All Filters
-              </button>
-            )}
-          </div>
-            </div>
-          </aside>
-
-          {/* Events Grid */}
-          <div className="flex-1">
-            {filteredEvents.length > 0 ? (
-              <div className="space-y-10">
-                {eventsByDate.map(([dateStr, events], index) => {
-                  const date = parseISO(dateStr);
-                  const headingLabel = isToday(date) 
-                    ? 'Happening Today' 
-                    : isTomorrow(date) 
-                      ? 'Happening Tomorrow' 
-                      : `Happening ${format(date, 'EEEE')}`;
-                  const dateDisplay = format(date, 'EEEE, MMMM d');
-                  const holiday = getHoliday(date);
-                  
-                  return (
-                    <div key={dateStr}>
-                      {/* Date Section Header */}
-                      <div className="mb-4 pb-2 border-b border-border">
-                        <p className="text-primary font-medium text-base uppercase tracking-wider">
-                          {dateDisplay}
-                          {holiday && (
-                            <span className="ml-2 normal-case tracking-normal">• {holiday}</span>
-                          )}
-                        </p>
-                        <h3 className="font-display text-2xl text-foreground">
-                          {headingLabel}
-                        </h3>
-                      </div>
-                      
-                      {/* Events Grid for this date */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
-                        {events.map((event) => (
-                          <EventCard key={event.id} event={event} onLike={() => setShowToast(true)} />
-                  ))}
-                </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="text-center py-16 bg-muted rounded-2xl">
-                <Search size={48} className="mx-auto text-muted-foreground mb-4" />
-                <h3 className="font-display text-xl text-foreground mb-2">
-                  No Events Found
-                </h3>
-                <p className="text-muted-foreground mb-4">
-                  Try adjusting your filters or search terms.
-                </p>
-                <button
-                  onClick={clearFilters}
-                  className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium"
-                >
-                  Clear All Filters
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Deals Tab - Grouped by Date */}
-      {activeTab === 'deals' && (
-        <div className="flex flex-col lg:flex-row gap-8">
-          {/* Left Sidebar - Filters */}
-          <aside className="lg:w-52 flex-shrink-0">
-            <div className="lg:sticky lg:top-24 space-y-6">
-              {/* Filters Section */}
-              <div className="space-y-4">
-                <h3 className="font-medium text-foreground">Filters</h3>
-                
-                {/* Food/Drink Filter */}
-                <div className="space-y-2">
-                  <p className="text-sm font-medium text-foreground">Type</p>
-                  <div className="flex flex-wrap gap-2">
-                    {(['food', 'drink'] as const).map((type) => {
-                      const isSelected = selectedFoodDrinkFilter.includes(type);
-                      return (
-                        <button
-                          key={type}
-                          onClick={() => toggleFoodDrinkFilter(type)}
-                          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all capitalize ${
-                            isSelected
-                              ? type === 'food' 
-                                ? 'bg-orange-500 text-white'
-                                : 'bg-blue-500 text-white'
-                              : 'bg-card text-foreground hover:bg-muted border border-border'
-                          }`}
-                        >
-                          {type}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-                
-                {/* Free Only */}
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={freeOnly}
-                    onChange={(e) => {
-                      setFreeOnly(e.target.checked);
-                      if (e.target.checked) setPriceFilterEnabled(false);
-                    }}
-                    className="w-4 h-4 text-primary rounded focus:ring-primary"
-                  />
-                  <span className="text-sm text-foreground">Free only</span>
-                </label>
-
-                {/* Price Range Slider */}
-                {!freeOnly && (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={priceFilterEnabled}
-                          onChange={(e) => setPriceFilterEnabled(e.target.checked)}
-                          className="w-4 h-4 text-primary rounded focus:ring-primary"
-                        />
-                        <span className="text-sm text-foreground">Max price</span>
-                      </label>
-                      {priceFilterEnabled && (
-                        <span className="text-sm font-medium text-primary">${maxPrice}</span>
-                      )}
-                    </div>
-                    {priceFilterEnabled && (
-                      <input
-                        type="range"
-                        min="0"
-                        max="100"
-                        step="5"
-                        value={maxPrice}
-                        onChange={(e) => setMaxPrice(parseInt(e.target.value, 10))}
-                        className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
-                      />
-                    )}
-                  </div>
-                )}
-
-                {/* Clear Filters */}
-                {hasActiveFilters && (
-                  <button
-                    onClick={clearFilters}
-                    className="w-full px-4 py-2 text-sm text-primary border border-primary rounded-lg hover:bg-primary/5 transition-colors"
-                  >
-                    Clear All Filters
-                  </button>
-                )}
-              </div>
-            </div>
-          </aside>
-
-          {/* Deals Grid - Grouped by Date, then by Venue */}
-          <div className="flex-1">
-            {filteredDeals.length > 0 ? (
-              <div className="space-y-10">
-                {dealsByDate.map(([dateStr, dealsForDate]) => {
-                  const date = parseISO(dateStr);
-                  const headingLabel = isToday(date) 
-                    ? 'Happening Today' 
-                    : isTomorrow(date) 
-                      ? 'Happening Tomorrow' 
-                      : `Happening ${format(date, 'EEEE')}`;
-                  const dateDisplay = format(date, 'EEEE, MMMM d');
-                  const holiday = getHoliday(date);
-                  
-                  // Group deals for this date by venue
-                  const venueGrouped: { [venueName: string]: typeof dealsForDate } = {};
-                  dealsForDate.forEach(deal => {
-                    const venueName = deal.venue.name;
-                    if (!venueGrouped[venueName]) {
-                      venueGrouped[venueName] = [];
-                    }
-                    venueGrouped[venueName].push(deal);
-                  });
-                  const venueEntries = Object.entries(venueGrouped).sort(([venueA, dealsA], [venueB, dealsB]) => {
-                    // Sort by promotion tier (higher priority first), then alphabetically by venue name
-                    const tierA = getPromotionTierPriority(dealsA[0]?.venue?.promotionTier);
-                    const tierB = getPromotionTierPriority(dealsB[0]?.venue?.promotionTier);
-                    if (tierB !== tierA) {
-                      return tierB - tierA;
-                    }
-                    return venueA.localeCompare(venueB);
-                  });
-                  
-                  return (
-                    <div key={dateStr}>
-                      {/* Date Section Header */}
-                      <div className="mb-4 pb-2 border-b border-border">
-                        <p className="text-primary font-medium text-base uppercase tracking-wider">
-                          {dateDisplay}
-                          {holiday && (
-                            <span className="ml-2 normal-case tracking-normal">• {holiday}</span>
-                          )}
-                        </p>
-                        <h3 className="font-display text-2xl text-foreground">
-                          {headingLabel}
-                        </h3>
-                      </div>
-                      
-                      {/* Venue Cards - 2 columns masonry layout */}
-                      <div className="columns-1 md:columns-2 gap-6">
-                        {venueEntries.map(([venueName, deals]) => (
-                          <div key={venueName} className="bg-card rounded-2xl border border-border overflow-hidden flex flex-col mb-6 break-inside-avoid">
-                            {/* Venue Header with Ombre Banner (no venue image) */}
-                            <div className="relative">
-                              {/* Gradient Banner - always show gradient, never show venue image */}
-                              <div className="h-20 bg-muted overflow-hidden">
-                                <div className="w-full h-full bg-gradient-to-br from-secondary via-secondary/95 to-primary/80 relative">
-                                  <div className="absolute inset-0 pattern-bg opacity-10" />
-                                  <div className="absolute -top-8 -right-8 w-24 h-24 bg-primary/30 rounded-full blur-2xl" />
-                                  <div className="absolute -bottom-8 -left-8 w-24 h-24 bg-accent/20 rounded-full blur-2xl" />
-                                </div>
-                              </div>
-                              
-                              {/* Venue Info Overlay */}
-                              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-4">
-                                <Link 
-                                  href={`/venues/${deals[0]?.venue.id}`}
-                                  className="hover:underline"
-                                >
-                                  <h4 className="font-display text-lg text-white">{venueName}</h4>
-                                </Link>
-                                {deals[0]?.venue.address && (
-                                  <p className="text-white/80 text-sm flex items-center gap-1 mt-0.5">
-                                    <MapPin size={12} />
-                                    {deals[0].venue.address}
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Specials List */}
-                            <div className="p-4 space-y-3">
-                              {deals.map((deal) => {
-                                const liked = isLiked(deal.id);
-                                const likeCount = getLikeCount(deal.id);
-                                const handleLikeClick = (e: React.MouseEvent) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  if (!user) {
-                                    router.push('/login');
-                                    return;
-                                  }
-                                  const wasLiked = liked;
-                                  toggleLike(deal.id);
-                                  // Show toast when liking (not unliking)
-                                  if (!wasLiked) {
-                                    setShowToast(true);
-                                  }
-                                };
-                                return (
-                                  <div
-                                    key={deal.id}
-                                    className="group relative flex items-center gap-3 p-2 rounded-xl bg-muted/50 hover:bg-muted transition-all"
-                                  >
-                                    <Link
-                                      href={`/events/${deal.id}`}
-                                      className="flex items-center gap-3 flex-1 min-w-0"
-                                    >
-                                      <div className="w-14 h-14 rounded-lg overflow-hidden bg-muted flex-shrink-0">
-                                        <div className="w-full h-full bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center">
-                                          <Utensils size={18} className="text-primary" />
-                                        </div>
-                                      </div>
-                                      <div className="flex-1 min-w-0">
-                                        <h5 className="font-medium text-foreground group-hover:text-primary transition-colors line-clamp-1 text-base">
-                                          {deal.title}
-                                        </h5>
-                                        <div className="mt-1 min-h-[1.5rem]">
-                                          <div className="flex items-center gap-2 opacity-100 group-hover:opacity-0 group-hover:hidden transition-opacity duration-200">
-                                            {deal.price && (
-                                              <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-primary/10 text-primary font-semibold text-sm">
-                                                {formatPrice(deal.price)}
-                                              </span>
-                                            )}
-                                            <span className="text-muted-foreground text-sm flex items-center gap-1.5">
-                                              <Clock size={14} />
-                                              {(deal.isAllDay || deal.startTime === '00:00') 
-                                                ? 'All Day'
-                                                : `${format(parseISO(`2000-01-01T${deal.startTime}`), 'h:mm a')}${deal.endTime ? ` - ${format(parseISO(`2000-01-01T${deal.endTime}`), 'h:mm a')}` : ''}`
-                                              }
-                                            </span>
-                                          </div>
-                                          {deal.description && (
-                                            <p className="text-muted-foreground text-sm line-clamp-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 hidden group-hover:block">
-                                              {deal.description}
-                                            </p>
-                                          )}
-                                        </div>
-                                      </div>
-                                    </Link>
-                                    <button
-                                      onClick={handleLikeClick}
-                                      className={`flex items-center gap-1 p-1.5 rounded-full transition-all flex-shrink-0 ${
-                                        liked 
-                                          ? 'text-red-500' 
-                                          : 'text-muted-foreground hover:text-red-500'
-                                      }`}
-                                      title={user ? (liked ? 'Unlike' : 'Like') : 'Sign in to like'}
-                                    >
-                                      <Heart 
-                                        size={16} 
-                                        className={liked ? 'fill-current' : ''} 
-                                      />
-                                      {likeCount > 0 && (
-                                        <span className="text-xs font-medium">
-                                          {likeCount}
-                                        </span>
-                                      )}
-                                    </button>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
+                  {(() => {
+                    const list = applySpecialFilter(filteredDeals, sideSpecialFilter);
+                    if (list.length === 0) return <p className="py-6 text-[13px] text-ink-muted">No specials match.</p>;
+                    return (
+                      <>
+                        {list.slice(0, SPECIALS_PREVIEW).map((deal) => (
+                          <Link
+                            key={deal.id}
+                            href={`/events/${deal.id}`}
+                            className="group block border-b border-line py-3.5 last:border-b-0"
+                          >
+                            <p className="text-[15px] font-bold text-navy group-hover:underline">{deal.title}</p>
+                            <p className="mt-1 text-[13px] text-ink-muted">
+                              {deal.venue.name} ·{' '}
+                              {isAllDayEvent(deal)
+                                ? 'All day'
+                                : deal.endTime
+                                ? `${formatTimeShort(deal.startTime)} – ${formatTimeShort(deal.endTime)}`
+                                : `From ${formatTimeShort(deal.startTime)}`}
+                              {!singleDay && ` · ${format(parseISO(deal.date), 'EEE')}`}
+                            </p>
+                          </Link>
                         ))}
-                      </div>
-                    </div>
+                        <button onClick={() => setActiveTab('deals')} className="link-arrow mt-4">
+                          All {list.length} specials →
+                        </button>
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+            ) : activeTab === 'events' ? (
+              <div>
+                <div className="flex items-baseline justify-between">
+                  <h2 className="text-[24px] font-bold text-navy">Events {windowNoun}</h2>
+                  <span className="text-[13px] text-ink-muted">
+                    {filteredEvents.length} event{filteredEvents.length === 1 ? '' : 's'}
+                  </span>
+                </div>
+                <TextTabs
+                  value={sortMode}
+                  onChange={setSortMode}
+                  options={[
+                    { id: 'time', label: 'Time' },
+                    { id: 'popular', label: 'Popular' },
+                    { id: 'free', label: 'Free first' },
+                  ]}
+                />
+                {(() => {
+                  const list = showAllEvents ? filteredEvents : filteredEvents.slice(0, EVENTS_PREVIEW);
+                  const row = (e: Event) => (
+                    <DetailedEventRow key={e.id} event={e} saved={isLiked(e.id)} onSave={() => handleSave(e.id)} />
                   );
-                })}
-            </div>
-          ) : (
-            <div className="text-center py-16 bg-muted rounded-2xl">
-                <Utensils size={48} className="mx-auto text-muted-foreground mb-4" />
-                <h3 className="font-display text-xl text-foreground mb-2">
-                  No Specials Found
-                </h3>
-              <p className="text-muted-foreground mb-4">
-                Try adjusting your filters or search terms.
-              </p>
-              <button
-                onClick={clearFilters}
-                className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium"
-              >
-                Clear All Filters
-              </button>
-            </div>
-          )}
+                  return sortMode === 'time' ? (
+                    renderEventGroups(list, row)
+                  ) : (
+                    <div className="mt-4 border-t border-line">{list.map(row)}</div>
+                  );
+                })()}
+                {filteredEvents.length > EVENTS_PREVIEW && !showAllEvents && (
+                  <button onClick={() => setShowAllEvents(true)} className="link-arrow mt-5">
+                    Show all {filteredEvents.length} →
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="rounded-[22px] bg-sky-soft p-5 sm:p-8">
+                {(() => {
+                  const list = applySpecialFilter(filteredDeals, specialFilter);
+                  const shown = showAllSpecials ? list : list.slice(0, 10);
+                  const row = (e: Event) => (
+                    <SpecialListRow key={e.id} event={e} saved={isLiked(e.id)} onSave={() => handleSave(e.id)} />
+                  );
+                  return (
+                    <>
+                      <div className="flex items-baseline justify-between">
+                        <h2 className="text-[24px] font-bold text-navy">Food &amp; drink specials {windowNoun}</h2>
+                        <span className="text-[13px] text-ink-muted">
+                          {list.length} special{list.length === 1 ? '' : 's'}
+                        </span>
+                      </div>
+                      <TextTabs
+                        value={specialFilter}
+                        onChange={setSpecialFilter}
+                        options={[
+                          { id: 'all', label: 'All' },
+                          { id: 'food', label: 'Food' },
+                          { id: 'drink', label: 'Drinks' },
+                          { id: 'now', label: 'On now' },
+                          { id: 'happy', label: 'Happy hour' },
+                        ]}
+                      />
+                      {singleDay
+                        ? groupBy(shown, specialBand, SPECIAL_BAND_ORDER).map(([band, items]) => (
+                            <div key={band}>
+                              <Band label={band} />
+                              <div className="border-t border-line">{items.map(row)}</div>
+                            </div>
+                          ))
+                        : groupBy(shown, (e) => e.date).map(([date, items]) => (
+                            <div key={date}>
+                              <Band label={dayLabel(date)} />
+                              <div className="border-t border-line">{items.map(row)}</div>
+                            </div>
+                          ))}
+                      {list.length > shown.length && (
+                        <button onClick={() => setShowAllSpecials(true)} className="link-arrow mt-5">
+                          Show all {list.length} →
+                        </button>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
         </div>
       </div>
-      )}
 
-      {/* Toast notification */}
-      <Toast
-        isOpen={showToast}
-        message="Saved to My Events"
-        type="success"
-        onClose={() => setShowToast(false)}
-      />
+      <Toast isOpen={showToast} message="Saved to My Events" type="success" onClose={() => setShowToast(false)} />
     </>
   );
 }
@@ -1436,31 +985,25 @@ function EventsContent() {
 function EventsLoading() {
   return (
     <div className="flex items-center justify-center py-24">
-      <Loader2 size={32} className="animate-spin text-primary" />
+      <Loader2 size={32} className="animate-spin text-navy" />
     </div>
   );
 }
 
 export default function EventsPage() {
   return (
-    <div className="min-h-screen">
-      {/* Header */}
-      <section className="bg-gradient-to-br from-muted to-background py-10 sm:py-12">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <h1 className="font-display text-4xl sm:text-5xl text-foreground mb-2">
-            Browse
-          </h1>
-          <p className="text-muted-foreground text-lg">
-            Discover all the events happening in Kingston.
-          </p>
-        </div>
-      </section>
-
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <Suspense fallback={<EventsLoading />}>
-          <EventsContent />
-        </Suspense>
-      </div>
+    <div className="page-container pb-24 pt-10">
+      <p className="eyebrow mb-3.5">— Browse</p>
+      <h1 className="display-section">
+        Everything
+        <br />
+        happening
+      </h1>
+      <p className="mt-2.5 text-[14px] text-ink-muted">feeling spontaneous or planning your week?</p>
+      <div className="h-10" />
+      <Suspense fallback={<EventsLoading />}>
+        <EventsContent />
+      </Suspense>
     </div>
   );
 }
